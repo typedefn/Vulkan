@@ -42,6 +42,23 @@
 #define HEADER_LUMPS  15
 #define BSPVERSION  29
 
+#define LUMP_ENTITIES 0
+#define LUMP_PLANES   1
+#define LUMP_TEXTURES 2
+#define LUMP_VERTEXES 3
+#define LUMP_VISIBILITY 4
+#define LUMP_NODES    5
+#define LUMP_TEXINFO  6
+#define LUMP_FACES    7
+#define LUMP_LIGHTING 8
+#define LUMP_CLIPNODES  9
+#define LUMP_LEAFS    10
+#define LUMP_MARKSURFACES 11
+#define LUMP_EDGES    12
+#define LUMP_SURFEDGES  13
+#define LUMP_MODELS   14
+
+#define HEADER_LUMPS  15
 /* RMQ support (2PSB). 32bits instead of shorts for all but bbox sizes (which
  * still use shorts) */
 #define BSP2VERSION_2PSB (('B' << 24) | ('S' << 16) | ('P' << 8) | '2')
@@ -78,6 +95,12 @@ extern VkMemoryPropertyFlags memoryPropertyFlags;
 extern uint32_t descriptorBindingFlags;
 
 struct Node;
+
+struct DVertex
+{
+  float point[3];
+};
+
 
 struct MVertex {
   glm::vec3 position;
@@ -318,7 +341,7 @@ struct QModel {
   MLeaf *leafs;
 
   int numvertexes;
-  MVertex *vertexes;
+  std::vector<MVertex> vertexes;
 
   int numedges;
   MEdge *edges;
@@ -748,6 +771,13 @@ public:
 
   size_t q_strlcpy(char *dst, const char *src, size_t siz);
   void modLoadBrushModel (QModel *mod, void *buffer);
+
+  /*
+  =================
+  Mod_LoadVertexes
+  =================
+  */
+  void modLoadVertexes (Lump *l);
 
 };
 }

@@ -2018,7 +2018,7 @@ void vkglBSP::Model::modLoadBrushModel(QModel *mod, void *buffer) {
 
 // load into heap
 
-  Mod_LoadVertexes(&header->lumps[LUMP_VERTEXES]);
+  modLoadVertexes(&header->lumps[LUMP_VERTEXES]);
   Mod_LoadEdges(&header->lumps[LUMP_EDGES], bsp2);
   Mod_LoadSurfedges(&header->lumps[LUMP_SURFEDGES]);
   Mod_LoadTextures(&header->lumps[LUMP_TEXTURES]);
@@ -2051,7 +2051,7 @@ void vkglBSP::Model::modLoadBrushModel(QModel *mod, void *buffer) {
     }
   }
 
-  Mod_LoadVisibility(&header->lumps[LUMP_VISIBILITY]);
+
   Mod_LoadLeafs(&header->lumps[LUMP_LEAFS], bsp2);
   visdone: Mod_LoadNodes(&header->lumps[LUMP_NODES], bsp2);
   Mod_LoadClipnodes(&header->lumps[LUMP_CLIPNODES], bsp2);
@@ -2115,7 +2115,7 @@ void vkglBSP::Model::modLoadBrushModel(QModel *mod, void *buffer) {
       char name[10];
 
       sprintf(name, "*%i", i + 1);
-      loadmodel = Mod_FindName(name);
+      loadmodel = modFindName(name);
       *loadmodel = *mod;
       strcpy(loadmodel->name, name);
       mod = loadmodel;
@@ -2123,3 +2123,29 @@ void vkglBSP::Model::modLoadBrushModel(QModel *mod, void *buffer) {
   }
 }
 
+void vkglBSP::Model::modLoadVertexes(Lump *l) {
+  DVertex *in;
+  std::vector<MVertex> out;
+  int i, count;
+
+  in = (DVertex*) (mod_base + l->fileofs);
+  if (l->filelen % sizeof(*in)) {
+    char buff[256];
+    snprintf(buff, 255, "modLoadVertexes: funny lump size in %s",
+        loadmodel->name);
+    throw std::runtime_error(buff);
+  }
+
+  count = l->filelen / sizeof(*in);
+
+  loadmodel->vertexes = out;
+  loadmodel->numvertexes = count;
+
+  for (i = 0; i < count; i++, in++, out++) {
+    MVertex v;
+    v.position.x = in->point[0];
+    v.position.y = in->point[1];
+    v.position.z = in->point[2];
+    out.push_back(v);
+  }
+}
