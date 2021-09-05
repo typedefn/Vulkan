@@ -4,7 +4,7 @@
 #include <string>
 #include <fstream>
 #include <vector>
-#include <stdexception>
+#include <stdexcept>
 
 #include "vulkan/vulkan.h"
 #include "VulkanDevice.h"
@@ -66,6 +66,10 @@
 /* BSP2 support. 32bits instead of shorts for everything (bboxes use floats) */
 #define BSP2VERSION_BSP2 (('B' << 0) | ('S' << 8) | ('P' << 16) | ('2'<<24))
 
+#define LOADFILE_STACK    4
+#define MAX_OSPATH 1024
+#define MAX_HANDLES   32  /* johnfitz -- was 10 */
+#define MAX_FILES_IN_PACK 2048
 
 typedef unsigned char byte;
 typedef uintptr_t src_offset_t;
@@ -96,11 +100,9 @@ extern uint32_t descriptorBindingFlags;
 
 struct Node;
 
-struct DVertex
-{
+struct DVertex {
   float point[3];
 };
-
 
 struct MVertex {
   glm::vec3 position;
@@ -115,9 +117,8 @@ struct CacheUser {
   void *data;
 };
 
-struct Lump
-{
-  int   fileofs, filelen;
+struct Lump {
+  int fileofs, filelen;
 };
 
 struct EntityState {
@@ -285,12 +286,10 @@ struct MLeaf {
   byte ambient_sound_level[NUM_AMBIENTS];
 };
 
-struct DHeader
-{
-  int     version;
-  Lump    lumps[HEADER_LUMPS];
+struct DHeader {
+  int version;
+  Lump lumps[HEADER_LUMPS];
 };
-
 
 struct DModel {
   float mins[3], maxs[3];
@@ -448,6 +447,35 @@ struct Entity {
   glm::vec3 currentorigin;  //johnfitz -- transform lerping
   glm::vec3 previousangles; //johnfitz -- transform lerping
   glm::vec3 currentangles;  //johnfitz -- transform lerping
+};
+
+// QUAKEFS
+struct PackFile {
+  char name[MAX_QPATH];
+  int filepos, filelen;
+};
+
+struct Pack {
+  char filename[MAX_OSPATH];
+  int handle;
+  int numfiles;
+  std::vector<PackFile> files;
+};
+
+//
+// on-disk pakfile
+//
+struct DPackFile
+{
+  char  name[56];
+  int   filepos, filelen;
+} ;
+
+struct DPackHeader
+{
+  char  id[4];
+  int   dirofs;
+  int   dirlen;
 };
 
 /*
@@ -675,9 +703,12 @@ private:
   void createEmptyTexture(VkQueue transferQueue);
   byte *loadbuf;
   int loadsize;
-  QModel  *loadmodel;
-  char  loadname[32]; // for hunk tags
-  byte  *mod_base;
+  QModel *loadmodel;
+  char loadname[32]; // for hunk tags
+  byte *mod_base;
+  char errorBuff[256];
+  FILE   *sys_handles[MAX_HANDLES];
+  Pack *pak0;
 
 public:
   vks::VulkanDevice *device;
@@ -770,14 +801,20 @@ public:
   void comFileBase(const char *in, char *out, size_t outsize);
 
   size_t q_strlcpy(char *dst, const char *src, size_t siz);
-  void modLoadBrushModel (QModel *mod, void *buffer);
+  void modLoadBrushModel(QModel *mod, void *buffer);
 
   /*
-  =================
-  Mod_LoadVertexes
-  =================
-  */
-  void modLoadVertexes (Lump *l);
+   =================
+   Mod_LoadVertexes
+   =================
+   */
+  void modLoadVertexes(Lump *l);
+
+  void init();
+  Pack comLoadPackFile(const char *packfile);
+  int sysFileOpenRead(const char *path, int *hndl);
+  long sysFileLength (FILE *f);
+  PackFile comFindFile(const char * filename);
 
 };
 }

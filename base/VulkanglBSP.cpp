@@ -1871,7 +1871,10 @@ vkglBSP::QModel* vkglBSP::Model::modLoadModel(vkglBSP::QModel *mod,
   buf = comLoadStackFile(mod->name, stackbuf, sizeof(stackbuf), &mod->path_id);
   if (!buf) {
     if (crash)
-      throw std::runtime_error("modLoadModel: %s not found", mod->name); //johnfitz -- was "Mod_NumForName"
+    {
+      snprintf(errorBuff, sizeof(char) * 255, "modLoadModel: %s not found", mod->name);
+      throw std::runtime_error(errorBuff);
+    }
     return nullptr;
   }
 
@@ -1914,7 +1917,7 @@ byte* vkglBSP::Model::comLoadStackFile(const char *path, void *buffer,
 
   loadbuf = (byte*) buffer;
   loadsize = bufsize;
-  buf = COM_LoadFile(path, LOADFILE_STACK, path_id);
+//  buf = comLoadFile(path, LOADFILE_STACK, path_id);
 
   return buf;
 }
@@ -2011,116 +2014,115 @@ void vkglBSP::Model::modLoadBrushModel(QModel *mod, void *buffer) {
 
 // swap all the lumps
   mod_base = (byte*) header;
-
-  for (i = 0; i < (int) sizeof(dheader_t) / 4; i++)
-//    ((int*) header)[i] = LittleLong(((int*) header)[i]);
-    ((int*) header)[i] = (((int*) header)[i]);
-
-// load into heap
-
-  modLoadVertexes(&header->lumps[LUMP_VERTEXES]);
-  Mod_LoadEdges(&header->lumps[LUMP_EDGES], bsp2);
-  Mod_LoadSurfedges(&header->lumps[LUMP_SURFEDGES]);
-  Mod_LoadTextures(&header->lumps[LUMP_TEXTURES]);
-  Mod_LoadLighting(&header->lumps[LUMP_LIGHTING]);
-  Mod_LoadPlanes(&header->lumps[LUMP_PLANES]);
-  Mod_LoadTexinfo(&header->lumps[LUMP_TEXINFO]);
-  Mod_LoadFaces(&header->lumps[LUMP_FACES], bsp2);
-  Mod_LoadMarksurfaces(&header->lumps[LUMP_MARKSURFACES], bsp2);
-
-  if (!bsp2 && external_vis.value && sv.modelname[0]
-      && !q_strcasecmp(loadname, sv.name)) {
-    FILE *fvis;
-    Con_DPrintf("trying to open external vis file\n");
-    fvis = Mod_FindVisibilityExternal();
-    if (fvis) {
-      int mark = Hunk_LowMark();
-      loadmodel->leafs = NULL;
-      loadmodel->numleafs = 0;
-      Con_DPrintf("found valid external .vis file for map\n");
-      loadmodel->visdata = Mod_LoadVisibilityExternal(fvis);
-      if (loadmodel->visdata) {
-        Mod_LoadLeafsExternal(fvis);
-      }
-      fclose(fvis);
-      if (loadmodel->visdata && loadmodel->leafs && loadmodel->numleafs) {
-        goto visdone;
-      }
-      Hunk_FreeToLowMark(mark);
-      Con_DPrintf("External VIS data failed, using standard vis.\n");
-    }
-  }
-
-
-  Mod_LoadLeafs(&header->lumps[LUMP_LEAFS], bsp2);
-  visdone: Mod_LoadNodes(&header->lumps[LUMP_NODES], bsp2);
-  Mod_LoadClipnodes(&header->lumps[LUMP_CLIPNODES], bsp2);
-  Mod_LoadEntities(&header->lumps[LUMP_ENTITIES]);
-  Mod_LoadSubmodels(&header->lumps[LUMP_MODELS]);
-
-  Mod_PrepareSIMDData();
-  Mod_MakeHull0();
-
-  mod->numframes = 2;   // regular and alternate animation
-
-  Mod_CheckWaterVis();
-
 //
-// set up the submodels (FIXME: this is confusing)
+//  for (i = 0; i < (int) sizeof(dheader_t) / 4; i++)
+////    ((int*) header)[i] = LittleLong(((int*) header)[i]);
+//    ((int*) header)[i] = (((int*) header)[i]);
 //
-
-  // johnfitz -- okay, so that i stop getting confused every time i look at this loop, here's how it works:
-  // we're looping through the submodels starting at 0.  Submodel 0 is the main model, so we don't have to
-  // worry about clobbering data the first time through, since it's the same data.  At the end of the loop,
-  // we create a new copy of the data to use the next time through.
-  for (i = 0; i < mod->numsubmodels; i++) {
-    bm = &mod->submodels[i];
-
-    mod->hulls[0].firstclipnode = bm->headnode[0];
-    for (j = 1; j < MAX_MAP_HULLS; j++) {
-      mod->hulls[j].firstclipnode = bm->headnode[j];
-      mod->hulls[j].lastclipnode = mod->numclipnodes - 1;
-    }
-
-    mod->firstmodelsurface = bm->firstface;
-    mod->nummodelsurfaces = bm->numfaces;
-
-    VectorCopy(bm->maxs, mod->maxs);
-    VectorCopy(bm->mins, mod->mins);
-
-    //johnfitz -- calculate rotate bounds and yaw bounds
-    radius = RadiusFromBounds(mod->mins, mod->maxs);
-    mod->rmaxs[0] = mod->rmaxs[1] = mod->rmaxs[2] = mod->ymaxs[0] =
-        mod->ymaxs[1] = mod->ymaxs[2] = radius;
-    mod->rmins[0] = mod->rmins[1] = mod->rmins[2] = mod->ymins[0] =
-        mod->ymins[1] = mod->ymins[2] = -radius;
-    //johnfitz
-
-    //johnfitz -- correct physics cullboxes so that outlying clip brushes on doors and stuff are handled right
-    if (i > 0 || strcmp(mod->name, sv.modelname) != 0) //skip submodel 0 of sv.worldmodel, which is the actual world
-        {
-      // start with the hull0 bounds
-      VectorCopy(mod->maxs, mod->clipmaxs);
-      VectorCopy(mod->mins, mod->clipmins);
-
-      // process hull1 (we don't need to process hull2 becuase there's
-      // no such thing as a brush that appears in hull2 but not hull1)
-      //Mod_BoundsFromClipNode (mod, 1, mod->hulls[1].firstclipnode); // (disabled for now becuase it fucks up on rotating models)
-    }
-    //johnfitz
-
-    mod->numleafs = bm->visleafs;
-
-    if (i < mod->numsubmodels - 1) { // duplicate the basic information
-      char name[10];
-
-      sprintf(name, "*%i", i + 1);
-      loadmodel = modFindName(name);
-      *loadmodel = *mod;
-      strcpy(loadmodel->name, name);
-      mod = loadmodel;
-    }
-  }
+//// load into heap
+//
+//  modLoadVertexes(&header->lumps[LUMP_VERTEXES]);
+//  Mod_LoadEdges(&header->lumps[LUMP_EDGES], bsp2);
+//  Mod_LoadSurfedges(&header->lumps[LUMP_SURFEDGES]);
+//  Mod_LoadTextures(&header->lumps[LUMP_TEXTURES]);
+//  Mod_LoadLighting(&header->lumps[LUMP_LIGHTING]);
+//  Mod_LoadPlanes(&header->lumps[LUMP_PLANES]);
+//  Mod_LoadTexinfo(&header->lumps[LUMP_TEXINFO]);
+//  Mod_LoadFaces(&header->lumps[LUMP_FACES], bsp2);
+//  Mod_LoadMarksurfaces(&header->lumps[LUMP_MARKSURFACES], bsp2);
+//
+//  if (!bsp2 && external_vis.value && sv.modelname[0]
+//      && !q_strcasecmp(loadname, sv.name)) {
+//    FILE *fvis;
+//    Con_DPrintf("trying to open external vis file\n");
+//    fvis = Mod_FindVisibilityExternal();
+//    if (fvis) {
+//      int mark = Hunk_LowMark();
+//      loadmodel->leafs = NULL;
+//      loadmodel->numleafs = 0;
+//      Con_DPrintf("found valid external .vis file for map\n");
+//      loadmodel->visdata = Mod_LoadVisibilityExternal(fvis);
+//      if (loadmodel->visdata) {
+//        Mod_LoadLeafsExternal(fvis);
+//      }
+//      fclose(fvis);
+//      if (loadmodel->visdata && loadmodel->leafs && loadmodel->numleafs) {
+//        goto visdone;
+//      }
+//      Hunk_FreeToLowMark(mark);
+//      Con_DPrintf("External VIS data failed, using standard vis.\n");
+//    }
+//  }
+//
+//  Mod_LoadLeafs(&header->lumps[LUMP_LEAFS], bsp2);
+//  visdone: Mod_LoadNodes(&header->lumps[LUMP_NODES], bsp2);
+//  Mod_LoadClipnodes(&header->lumps[LUMP_CLIPNODES], bsp2);
+//  Mod_LoadEntities(&header->lumps[LUMP_ENTITIES]);
+//  Mod_LoadSubmodels(&header->lumps[LUMP_MODELS]);
+//
+//  Mod_PrepareSIMDData();
+//  Mod_MakeHull0();
+//
+//  mod->numframes = 2;   // regular and alternate animation
+//
+//  Mod_CheckWaterVis();
+//
+////
+//// set up the submodels (FIXME: this is confusing)
+////
+//
+//  // johnfitz -- okay, so that i stop getting confused every time i look at this loop, here's how it works:
+//  // we're looping through the submodels starting at 0.  Submodel 0 is the main model, so we don't have to
+//  // worry about clobbering data the first time through, since it's the same data.  At the end of the loop,
+//  // we create a new copy of the data to use the next time through.
+//  for (i = 0; i < mod->numsubmodels; i++) {
+//    bm = &mod->submodels[i];
+//
+//    mod->hulls[0].firstclipnode = bm->headnode[0];
+//    for (j = 1; j < MAX_MAP_HULLS; j++) {
+//      mod->hulls[j].firstclipnode = bm->headnode[j];
+//      mod->hulls[j].lastclipnode = mod->numclipnodes - 1;
+//    }
+//
+//    mod->firstmodelsurface = bm->firstface;
+//    mod->nummodelsurfaces = bm->numfaces;
+//
+//    VectorCopy(bm->maxs, mod->maxs);
+//    VectorCopy(bm->mins, mod->mins);
+//
+//    //johnfitz -- calculate rotate bounds and yaw bounds
+//    radius = RadiusFromBounds(mod->mins, mod->maxs);
+//    mod->rmaxs[0] = mod->rmaxs[1] = mod->rmaxs[2] = mod->ymaxs[0] =
+//        mod->ymaxs[1] = mod->ymaxs[2] = radius;
+//    mod->rmins[0] = mod->rmins[1] = mod->rmins[2] = mod->ymins[0] =
+//        mod->ymins[1] = mod->ymins[2] = -radius;
+//    //johnfitz
+//
+//    //johnfitz -- correct physics cullboxes so that outlying clip brushes on doors and stuff are handled right
+//    if (i > 0 || strcmp(mod->name, sv.modelname) != 0) //skip submodel 0 of sv.worldmodel, which is the actual world
+//        {
+//      // start with the hull0 bounds
+//      VectorCopy(mod->maxs, mod->clipmaxs);
+//      VectorCopy(mod->mins, mod->clipmins);
+//
+//      // process hull1 (we don't need to process hull2 becuase there's
+//      // no such thing as a brush that appears in hull2 but not hull1)
+//      //Mod_BoundsFromClipNode (mod, 1, mod->hulls[1].firstclipnode); // (disabled for now becuase it fucks up on rotating models)
+//    }
+//    //johnfitz
+//
+//    mod->numleafs = bm->visleafs;
+//
+//    if (i < mod->numsubmodels - 1) { // duplicate the basic information
+//      char name[10];
+//
+//      sprintf(name, "*%i", i + 1);
+//      loadmodel = modFindName(name);
+//      *loadmodel = *mod;
+//      strcpy(loadmodel->name, name);
+//      mod = loadmodel;
+//    }
+//  }
 }
 
 void vkglBSP::Model::modLoadVertexes(Lump *l) {
@@ -2140,12 +2142,117 @@ void vkglBSP::Model::modLoadVertexes(Lump *l) {
 
   loadmodel->vertexes = out;
   loadmodel->numvertexes = count;
+//
+//  for (i = 0; i < count; i++, in++, out++) {
+//    MVertex v;
+//    v.position.x = in->point[0];
+//    v.position.y = in->point[1];
+//    v.position.z = in->point[2];
+//    out.push_back(v);
+//  }
+}
 
-  for (i = 0; i < count; i++, in++, out++) {
-    MVertex v;
-    v.position.x = in->point[0];
-    v.position.y = in->point[1];
-    v.position.z = in->point[2];
-    out.push_back(v);
+void vkglBSP::Model::init() {
+  char pakfile[MAX_OSPATH];
+  snprintf(pakfile, sizeof(pakfile), "id1/pak1.pak");
+  Pack pak = comLoadPackFile(pakfile);
+  pak0 = &pak;
+
+  PackFile startBSP = comFindFile("maps/start.bsp");
+
+
+}
+
+vkglBSP::Pack vkglBSP::Model::comLoadPackFile(const char *packfile) {
+  int packhandle;
+  Pack pack;
+  DPackHeader header;
+  DPackFile info[MAX_FILES_IN_PACK];
+  FILE *f;
+  int retval;
+  int numPackFiles;
+
+  f = fopen(packfile, "rb");
+
+  if (f == nullptr) {
+    snprintf(errorBuff, sizeof(char) * 256, "sysFileOpenRead failed! %s",
+        packfile);
+    throw std::runtime_error(errorBuff);
   }
+
+  retval = sysFileLength(f);
+
+  fread((void*) &header, 1, sizeof(header), f);
+
+  if (header.id[0] != 'P' || header.id[1] != 'A' || header.id[2] != 'C'
+      || header.id[3] != 'K') {
+    snprintf(errorBuff, sizeof(char) * 256, "%s is not a packfile", packfile);
+    throw std::runtime_error(errorBuff);
+  }
+
+  numPackFiles = header.dirlen / sizeof(DPackFile);
+
+  if (header.dirlen < 0 || header.dirofs < 0) {
+    snprintf(errorBuff, sizeof(char) * 256,
+        "Invalid packfile %s (dirlen: %i, dirofs: %i)", packfile, header.dirlen,
+        header.dirofs);
+    throw std::runtime_error(errorBuff);
+  }
+
+  if (!numPackFiles) {
+    std::cerr << "WARNING: " << packfile << " has no files, ignored" << std::endl;
+    fclose(f);
+    return pack;
+  }
+
+  if (numPackFiles > MAX_FILES_IN_PACK) {
+    snprintf(errorBuff, sizeof(char) * 256, "Max files of %d in %s pack file",
+        numPackFiles, packfile);
+    throw std::runtime_error(errorBuff);
+  }
+
+  fseek(f, header.dirofs, SEEK_SET);
+  fread((void*) info, 1, header.dirlen, f);
+
+  std::vector<PackFile> newFiles;
+  // parse the directory
+  for (int i = 0; i < numPackFiles; i++) {
+    PackFile newFile;
+    strncpy(newFile.name, info[i].name, sizeof(newFile.name));
+    newFile.filepos = info[i].filepos;
+    newFile.filelen = info[i].filelen;
+    newFiles.push_back(newFile);
+    std::cout << "Found: " << newFile.name << std::endl;
+  }
+
+  strncpy(pack.filename, packfile, sizeof(pack.filename));
+
+  pack.numfiles = numPackFiles;
+  pack.files = newFiles;
+
+  return pack;
+}
+
+long vkglBSP::Model::sysFileLength(FILE *f) {
+  long pos, end;
+
+  pos = ftell(f);
+  fseek(f, 0, SEEK_END);
+  end = ftell(f);
+  fseek(f, pos, SEEK_SET);
+
+  return end;
+}
+
+vkglBSP::PackFile vkglBSP::Model::comFindFile(const char * filename) {
+   for(const auto & f : this->pak0->files) {
+     if(strcmp(f.name, filename) != 0) {
+       continue;
+     }
+
+     return f;
+   }
+
+   std::cerr << "File " << filename << " not found" << std::endl;
+   return PackFile();
 }

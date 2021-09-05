@@ -113,6 +113,7 @@ set(EXAMPLES
 	raytracingcallable
 	raytracingreflections
 	raytracingshadows	
+	raytracingbsp
 	renderheadless
 	screenshot
 	shadowmapping
