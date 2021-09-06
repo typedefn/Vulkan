@@ -269,7 +269,8 @@ struct Hull {
 struct GlPoly {
   struct glpoly_s *next;
   int numverts;
-  float verts[4][VERTEXSIZE]; // variable sized (xyz s1t1 s2t2)
+//  float verts[4][VERTEXSIZE]; // variable sized (xyz s1t1 s2t2)
+  std::vector<glm::vec3> verts;
 };
 
 struct MSurface {
@@ -767,6 +768,8 @@ private:
 std::vector<MVertex> backupVertex;
 std::vector<uint32_t> backupIndex;
   QModel mod;
+  VkDescriptorSet descriptorSet;
+
 public:
   QModel *loadmodel;
   vks::VulkanDevice *device;
@@ -810,12 +813,7 @@ public:
       VkQueue transferQueue, uint32_t fileLoadingFlags =
           vkglBSP::FileLoadingFlags::None, float scale = 1.0f);
   void bindBuffers(VkCommandBuffer commandBuffer);
-  void drawNode(Node *node, VkCommandBuffer commandBuffer,
-      uint32_t renderFlags = 0, VkPipelineLayout pipelineLayout =
-      VK_NULL_HANDLE, uint32_t bindImageSet = 1);
-  void draw(VkCommandBuffer commandBuffer, uint32_t renderFlags = 0,
-      VkPipelineLayout pipelineLayout = VK_NULL_HANDLE, uint32_t bindImageSet =
-          1);
+  void draw(const VkCommandBuffer commandBuffer, VkPipeline pipeline, VkPipelineLayout pipelineLayout);
   void getNodeDimensions(Node *node, glm::vec3 &min, glm::vec3 &max);
   void getSceneDimensions();
   void updateAnimation(uint32_t index, float time);
@@ -864,7 +862,6 @@ public:
   PackFile comFindFile(const char *filename);
   void modLoadEdges(Lump *l);
   void modLoadSurfedges(Lump *l);
-  void buildVertexBuffer(void);
   void modLoadFaces(Lump *l);
   void modPolyForUnlitSurface (MSurface *fa);
 };
