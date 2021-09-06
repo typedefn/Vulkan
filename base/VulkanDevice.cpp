@@ -316,11 +316,11 @@ namespace vks
 		VkBufferCreateInfo bufferCreateInfo = vks::initializers::bufferCreateInfo(usageFlags, size);
 		bufferCreateInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 		VK_CHECK_RESULT(vkCreateBuffer(logicalDevice, &bufferCreateInfo, nullptr, buffer));
-
 		// Create the memory backing up the buffer handle
 		VkMemoryRequirements memReqs;
 		VkMemoryAllocateInfo memAlloc = vks::initializers::memoryAllocateInfo();
 		vkGetBufferMemoryRequirements(logicalDevice, *buffer, &memReqs);
+		std::cout << "mem Req size = " << memReqs.size << std::endl;
 		memAlloc.allocationSize = memReqs.size;
 		// Find a memory type index that fits the properties of the buffer
 		memAlloc.memoryTypeIndex = getMemoryType(memReqs.memoryTypeBits, memoryPropertyFlags);
@@ -350,10 +350,8 @@ namespace vks
 			}
 			vkUnmapMemory(logicalDevice, *memory);
 		}
-
 		// Attach the memory to the buffer object
 		VK_CHECK_RESULT(vkBindBufferMemory(logicalDevice, *buffer, *memory, 0));
-
 		return VK_SUCCESS;
 	}
 

@@ -34,13 +34,10 @@ public:
 	{
 		title = "Ray traced BSP";
 		timerSpeed *= 0.25f;
-		camera.type = Camera::CameraType::lookat;
+		camera.type = Camera::CameraType::firstperson;
 		camera.setPerspective(60.0f, (float)width / (float)height, 0.1f, 512.0f);
 		camera.setRotation(glm::vec3(0.0f, 0.0f, 0.0f));
 		camera.setTranslation(glm::vec3(0.0f, 3.0f, -10.0f));
-		vkglBSP::Model m;
-		m.init();
-
 		enableExtensions();
 	}
 
@@ -66,27 +63,31 @@ public:
 		// Instead of a simple triangle, we'll be loading a more complex scene for this example
 		// The shaders are accessing the vertex and index buffers of the scene, so the proper usage flag has to be set on the vertex and index buffers for the scene
 		vkglBSP::memoryPropertyFlags = VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
-		const uint32_t glTFLoadingFlags = vkglBSP::FileLoadingFlags::PreTransformVertices | vkglBSP::FileLoadingFlags::PreMultiplyVertexColors | vkglBSP::FileLoadingFlags::FlipY;
+		const uint32_t glTFLoadingFlags = vkglBSP::FileLoadingFlags::None;
 		scene.loadFromFile(getAssetPath() + "models/vulkanscene_shadow.gltf", vulkanDevice, queue, glTFLoadingFlags);
 
+		std::cout << "Loaded from file done " << std::endl;
 		VkDeviceOrHostAddressConstKHR vertexBufferDeviceAddress{};
 		VkDeviceOrHostAddressConstKHR indexBufferDeviceAddress{};
+		std::cout << "-2" << std::endl;
+    std::cout << "Vertex buffer = " << scene.loadmodel->vertex_buffer << std::endl;
+		vertexBufferDeviceAddress.deviceAddress = getBufferDeviceAddress(scene.loadmodel->vertex_buffer);
+		indexBufferDeviceAddress.deviceAddress = getBufferDeviceAddress(scene.loadmodel->index_buffer);
 
-		vertexBufferDeviceAddress.deviceAddress = getBufferDeviceAddress(scene.vertices.buffer);
-		indexBufferDeviceAddress.deviceAddress = getBufferDeviceAddress(scene.indices.buffer);
+		std::cout << "-1" << std::endl;
+		uint32_t numTriangles = static_cast<uint32_t>(scene.loadmodel->vertexes.size()/3);
+		uint32_t maxVertex = scene.loadmodel->vertexes.size();
 
-		uint32_t numTriangles = static_cast<uint32_t>(scene.indices.count) / 3;
-		uint32_t maxVertex = scene.vertices.count;
-
+    std::cout << "0" << std::endl;
 		// Build
-		VkAccelerationStructureGeometryKHR accelerationStructureGeometry = vks::initializers::accelerationStructureGeometryKHR();
+    VkAccelerationStructureGeometryKHR accelerationStructureGeometry = vks::initializers::accelerationStructureGeometryKHR();
 		accelerationStructureGeometry.flags = VK_GEOMETRY_OPAQUE_BIT_KHR;
 		accelerationStructureGeometry.geometryType = VK_GEOMETRY_TYPE_TRIANGLES_KHR;
 		accelerationStructureGeometry.geometry.triangles.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_TRIANGLES_DATA_KHR;
 		accelerationStructureGeometry.geometry.triangles.vertexFormat = VK_FORMAT_R32G32B32_SFLOAT;
 		accelerationStructureGeometry.geometry.triangles.vertexData = vertexBufferDeviceAddress;
 		accelerationStructureGeometry.geometry.triangles.maxVertex = maxVertex;
-		accelerationStructureGeometry.geometry.triangles.vertexStride = sizeof(vkglBSP::Vertex);
+		accelerationStructureGeometry.geometry.triangles.vertexStride = sizeof(vkglBSP::MVertex);
 		accelerationStructureGeometry.geometry.triangles.indexType = VK_INDEX_TYPE_UINT32;
 		accelerationStructureGeometry.geometry.triangles.indexData = indexBufferDeviceAddress;
 		accelerationStructureGeometry.geometry.triangles.transformData.deviceAddress = 0;
@@ -107,7 +108,11 @@ public:
 			&numTriangles,
 			&accelerationStructureBuildSizesInfo);
 
+
+	  std::cout << "1" << std::endl;
+
 		createAccelerationStructure(bottomLevelAS, VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR, accelerationStructureBuildSizesInfo);
+		std::cout << "2" << std::endl;
 
 		// Create a small scratch buffer used during build of the bottom level acceleration structure
 		ScratchBuffer scratchBuffer = createScratchBuffer(accelerationStructureBuildSizesInfo.buildScratchSize);
@@ -128,6 +133,7 @@ public:
 		accelerationStructureBuildRangeInfo.transformOffset = 0;
 		std::vector<VkAccelerationStructureBuildRangeInfoKHR*> accelerationBuildStructureRangeInfos = { &accelerationStructureBuildRangeInfo };
 
+    std::cout << "3" << std::endl;
 		// Build the acceleration structure on the device via a one-time command buffer submission
 		// Some implementations may support acceleration structure building on the host (VkPhysicalDeviceAccelerationStructureFeaturesKHR->accelerationStructureHostCommands), but we prefer device builds
 		VkCommandBuffer commandBuffer = vulkanDevice->createCommandBuffer(VK_COMMAND_BUFFER_LEVEL_PRIMARY, true);
@@ -138,7 +144,9 @@ public:
 			accelerationBuildStructureRangeInfos.data());
 		vulkanDevice->flushCommandBuffer(commandBuffer, queue);
 
+    std::cout << "4" << std::endl;
 		deleteScratchBuffer(scratchBuffer);
+		std::cout << "Done with BLAS" << std::endl;
 	}
 
 	/*
@@ -172,7 +180,7 @@ public:
 		instanceDataDeviceAddress.deviceAddress = getBufferDeviceAddress(instancesBuffer.buffer);
 
 		VkAccelerationStructureGeometryKHR accelerationStructureGeometry = vks::initializers::accelerationStructureGeometryKHR();
-		accelerationStructureGeometry.geometryType = VK_GEOMETRY_TYPE_INSTANCES_KHR;
+		accelerationStructureGeometry.geometryType = VK_GEOMETRY_TYPE_TRIANGLES_KHR;
 		accelerationStructureGeometry.flags = VK_GEOMETRY_OPAQUE_BIT_KHR;
 		accelerationStructureGeometry.geometry.instances.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_INSTANCES_DATA_KHR;
 		accelerationStructureGeometry.geometry.instances.arrayOfPointers = VK_FALSE;
@@ -298,8 +306,8 @@ public:
 		accelerationStructureWrite.descriptorType = VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR;
 
 		VkDescriptorImageInfo storageImageDescriptor{ VK_NULL_HANDLE, storageImage.view, VK_IMAGE_LAYOUT_GENERAL };
-		VkDescriptorBufferInfo vertexBufferDescriptor{ scene.vertices.buffer, 0, VK_WHOLE_SIZE };
-		VkDescriptorBufferInfo indexBufferDescriptor{ scene.indices.buffer, 0, VK_WHOLE_SIZE };
+		VkDescriptorBufferInfo vertexBufferDescriptor{ scene.loadmodel->vertex_buffer, 0, VK_WHOLE_SIZE };
+		VkDescriptorBufferInfo indexBufferDescriptor{ scene.loadmodel->index_buffer, 0, VK_WHOLE_SIZE };
 
 		std::vector<VkWriteDescriptorSet> writeDescriptorSets = {
 			// Binding 0: Top level acceleration structure
@@ -516,7 +524,8 @@ public:
 	{
 		uniformData.projInverse = glm::inverse(camera.matrices.perspective);
 		uniformData.viewInverse = glm::inverse(camera.matrices.view);
-		uniformData.lightPos = glm::vec4(cos(glm::radians(timer * 360.0f)) * 40.0f, -50.0f + sin(glm::radians(timer * 360.0f)) * 20.0f, 25.0f + sin(glm::radians(timer * 360.0f)) * 5.0f, 0.0f);
+//		uniformData.lightPos = glm::vec4(cos(glm::radians(timer * 360.0f)) * 40.0f, -50.0f + sin(glm::radians(timer * 360.0f)) * 20.0f, 25.0f + sin(glm::radians(timer * 360.0f)) * 5.0f, 0.0f);
+		uniformData.lightPos = glm::vec4(camera.position, 0.0f);
 		// Pass the vertex size to the shader for unpacking vertices
 		uniformData.vertexSize = sizeof(vkglBSP::Vertex);
 		memcpy(ubo.mapped, &uniformData, sizeof(uniformData));
@@ -570,6 +579,9 @@ public:
 		if (!prepared)
 			return;
 		draw();
+
+		camera.update(2);
+
 		if (!paused || camera.updated)
 			updateUniformBuffers();
 	}

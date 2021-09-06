@@ -855,10 +855,10 @@ void vkglBSP::Model::createEmptyTexture(VkQueue transferQueue) {
  glTF model loading and rendering class
  */
 vkglBSP::Model::~Model() {
-  vkDestroyBuffer(device->logicalDevice, vertices.buffer, nullptr);
-  vkFreeMemory(device->logicalDevice, vertices.memory, nullptr);
-  vkDestroyBuffer(device->logicalDevice, indices.buffer, nullptr);
-  vkFreeMemory(device->logicalDevice, indices.memory, nullptr);
+  vkDestroyBuffer(device->logicalDevice, loadmodel->vertex_buffer, nullptr);
+  vkFreeMemory(device->logicalDevice, loadmodel->memory, nullptr);
+  vkDestroyBuffer(device->logicalDevice, loadmodel->index_buffer, nullptr);
+  vkFreeMemory(device->logicalDevice, loadmodel->index_memory, nullptr);
   for (auto texture : textures) {
     texture.destroy();
   }
@@ -1368,117 +1368,22 @@ void vkglBSP::Model::loadAnimations(tinygltf::Model &gltfModel) {
 void vkglBSP::Model::loadFromFile(std::string filename,
     vks::VulkanDevice *device, VkQueue transferQueue, uint32_t fileLoadingFlags,
     float scale) {
-  tinygltf::Model gltfModel;
   tinygltf::TinyGLTF gltfContext;
-  if (fileLoadingFlags & FileLoadingFlags::DontLoadImages) {
-    gltfContext.SetImageLoader(loadImageDataFuncEmpty, nullptr);
-  } else {
-    gltfContext.SetImageLoader(loadImageDataFunc, nullptr);
-  }
-#if defined(__ANDROID__)
-	// On Android all assets are packed with the apk in a compressed form, so we need to open them using the asset manager
-	// We let tinygltf handle this, by passing the asset manager of our app
-	tinygltf::asset_manager = androidApp->activity->assetManager;
-#endif
+
+  gltfContext.SetImageLoader(loadImageDataFuncEmpty, nullptr);
+
   size_t pos = filename.find_last_of('/');
   path = filename.substr(0, pos);
-
   std::string error, warning;
 
-  this->device = device;
+  init();
 
-#if defined(__ANDROID__)
-	// On Android all assets are packed with the apk in a compressed form, so we need to open them using the asset manager
-	// We let tinygltf handle this, by passing the asset manager of our app
-	tinygltf::asset_manager = androidApp->activity->assetManager;
-#endif
-  bool fileLoaded = gltfContext.LoadASCIIFromFile(&gltfModel, &error, &warning,
-      filename);
+  std::cout << "init completed" << std::endl;
 
-  std::vector<uint32_t> indexBuffer;
-  std::vector<Vertex> vertexBuffer;
+  size_t vertexBufferSize = loadmodel->vertexes.size() * sizeof(MVertex);
+  size_t indexBufferSize = loadmodel->edges.size() * sizeof(MEdge);
 
-  if (fileLoaded) {
-    if (!(fileLoadingFlags & FileLoadingFlags::DontLoadImages)) {
-      loadImages(gltfModel, device, transferQueue);
-    }
-    loadMaterials(gltfModel);
-    const tinygltf::Scene &scene = gltfModel.scenes[
-        gltfModel.defaultScene > -1 ? gltfModel.defaultScene : 0];
-    for (size_t i = 0; i < scene.nodes.size(); i++) {
-      const tinygltf::Node node = gltfModel.nodes[scene.nodes[i]];
-      loadNode(nullptr, node, scene.nodes[i], gltfModel, indexBuffer,
-          vertexBuffer, scale);
-    }
-    if (gltfModel.animations.size() > 0) {
-      loadAnimations(gltfModel);
-    }
-    loadSkins(gltfModel);
-
-    for (auto node : linearNodes) {
-      // Assign skins
-      if (node->skinIndex > -1) {
-        node->skin = skins[node->skinIndex];
-      }
-      // Initial pose
-      if (node->mesh) {
-        node->update();
-      }
-    }
-  } else {
-    // TODO: throw
-    vks::tools::exitFatal(
-        "Could not load glTF file \"" + filename + "\": " + error, -1);
-    return;
-  }
-
-  // Pre-Calculations for requested features
-  if ((fileLoadingFlags & FileLoadingFlags::PreTransformVertices)
-      || (fileLoadingFlags & FileLoadingFlags::PreMultiplyVertexColors)
-      || (fileLoadingFlags & FileLoadingFlags::FlipY)) {
-    const bool preTransform = fileLoadingFlags
-        & FileLoadingFlags::PreTransformVertices;
-    const bool preMultiplyColor = fileLoadingFlags
-        & FileLoadingFlags::PreMultiplyVertexColors;
-    const bool flipY = fileLoadingFlags & FileLoadingFlags::FlipY;
-    for (Node *node : linearNodes) {
-      if (node->mesh) {
-        const glm::mat4 localMatrix = node->getMatrix();
-        for (Primitive *primitive : node->mesh->primitives) {
-          for (uint32_t i = 0; i < primitive->vertexCount; i++) {
-            Vertex &vertex = vertexBuffer[primitive->firstVertex + i];
-            // Pre-transform vertex positions by node-hierarchy
-            if (preTransform) {
-              vertex.pos = glm::vec3(localMatrix * glm::vec4(vertex.pos, 1.0f));
-              vertex.normal = glm::normalize(
-                  glm::mat3(localMatrix) * vertex.normal);
-            }
-            // Flip Y-Axis of vertex positions
-            if (flipY) {
-              vertex.pos.y *= -1.0f;
-              vertex.normal.y *= -1.0f;
-            }
-            // Pre-Multiply vertex colors with material base color
-            if (preMultiplyColor) {
-              vertex.color = primitive->material.baseColorFactor * vertex.color;
-            }
-          }
-        }
-      }
-    }
-  }
-
-  for (auto extension : gltfModel.extensionsUsed) {
-    if (extension == "KHR_materials_pbrSpecularGlossiness") {
-      std::cout << "Required extension: " << extension;
-      metallicRoughnessWorkflow = false;
-    }
-  }
-
-  size_t vertexBufferSize = vertexBuffer.size() * sizeof(Vertex);
-  size_t indexBufferSize = indexBuffer.size() * sizeof(uint32_t);
-  indices.count = static_cast<uint32_t>(indexBuffer.size());
-  vertices.count = static_cast<uint32_t>(vertexBuffer.size());
+  std::cout << "vertex buffer size = " << vertexBufferSize << std::endl;
 
   assert((vertexBufferSize > 0) && (indexBufferSize > 0));
 
@@ -1489,88 +1394,108 @@ void vkglBSP::Model::loadFromFile(std::string filename,
 
   // Create staging buffers
   // Vertex data
+  std::cout << "Creating staging buffer " << std::endl;
   VK_CHECK_RESULT(
       device->createBuffer(VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
           VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT
               | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, vertexBufferSize,
-          &vertexStaging.buffer, &vertexStaging.memory, vertexBuffer.data()));
+          &vertexStaging.buffer, &vertexStaging.memory,
+          loadmodel->vertexes.data()));
+
+  std::cout << "Done creating staging buffer " << std::endl;
   // Index data
   VK_CHECK_RESULT(
       device->createBuffer(VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
           VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT
               | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, indexBufferSize,
-          &indexStaging.buffer, &indexStaging.memory, indexBuffer.data()));
+          &indexStaging.buffer, &indexStaging.memory, loadmodel->edges.data()));
 
   // Create device local buffers
   // Vertex buffer
+
   VK_CHECK_RESULT(
       device->createBuffer(
           VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT
-              | memoryPropertyFlags, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-          vertexBufferSize, &vertices.buffer, &vertices.memory));
+              | memoryPropertyFlags, VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+          vertexBufferSize, &loadmodel->vertex_buffer, &loadmodel->memory,
+          loadmodel->vertexes.data()));
+
+  std::cout << "VERTEX BUFFER = " << loadmodel->vertex_buffer << std::endl;
   // Index buffer
   VK_CHECK_RESULT(
       device->createBuffer(
           VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT
               | memoryPropertyFlags, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-          indexBufferSize, &indices.buffer, &indices.memory));
+          indexBufferSize, &loadmodel->index_buffer, &loadmodel->index_memory));
 
   // Copy from staging buffers
+  std::cout << "Creating command buffer " << std::endl;
   VkCommandBuffer copyCmd = device->createCommandBuffer(
       VK_COMMAND_BUFFER_LEVEL_PRIMARY, true);
 
   VkBufferCopy copyRegion = { };
 
   copyRegion.size = vertexBufferSize;
-  vkCmdCopyBuffer(copyCmd, vertexStaging.buffer, vertices.buffer, 1,
+  vkCmdCopyBuffer(copyCmd, vertexStaging.buffer, loadmodel->vertex_buffer, 1,
       &copyRegion);
 
+  std::cout << "Done Creating command buffer " << std::endl;
+
   copyRegion.size = indexBufferSize;
-  vkCmdCopyBuffer(copyCmd, indexStaging.buffer, indices.buffer, 1, &copyRegion);
+  vkCmdCopyBuffer(copyCmd, indexStaging.buffer, loadmodel->index_buffer, 1,
+      &copyRegion);
+
+  std::cout << "Flush command buffer " << std::endl;
 
   device->flushCommandBuffer(copyCmd, transferQueue, true);
+  std::cout << "Done Flush command buffer " << std::endl;
 
+  std::cout << "free staging buffer " << std::endl;
   vkDestroyBuffer(device->logicalDevice, vertexStaging.buffer, nullptr);
   vkFreeMemory(device->logicalDevice, vertexStaging.memory, nullptr);
+  std::cout << "done free staging buffer " << std::endl;
   vkDestroyBuffer(device->logicalDevice, indexStaging.buffer, nullptr);
   vkFreeMemory(device->logicalDevice, indexStaging.memory, nullptr);
 
-  getSceneDimensions();
+//  getSceneDimensions();
 
+  std::cout << "Setup descriptors " << std::endl;
   // Setup descriptors
   uint32_t uboCount { 0 };
   uint32_t imageCount { 0 };
-  for (auto node : linearNodes) {
-    if (node->mesh) {
-      uboCount++;
-    }
-  }
-  for (auto material : materials) {
-    if (material.baseColorTexture != nullptr) {
-      imageCount++;
-    }
-  }
-  std::vector<VkDescriptorPoolSize> poolSizes = { {
-      VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, uboCount }, };
-  if (imageCount > 0) {
-    if (descriptorBindingFlags & DescriptorBindingFlags::ImageBaseColor) {
-      poolSizes.push_back( { VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-          imageCount });
-    }
-    if (descriptorBindingFlags & DescriptorBindingFlags::ImageNormalMap) {
-      poolSizes.push_back( { VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-          imageCount });
-    }
-  }
-  VkDescriptorPoolCreateInfo descriptorPoolCI { };
-  descriptorPoolCI.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-  descriptorPoolCI.poolSizeCount = static_cast<uint32_t>(poolSizes.size());
-  descriptorPoolCI.pPoolSizes = poolSizes.data();
-  descriptorPoolCI.maxSets = uboCount + imageCount;
-  VK_CHECK_RESULT(
-      vkCreateDescriptorPool(device->logicalDevice, &descriptorPoolCI, nullptr,
-          &descriptorPool));
+//  for (auto node : linearNodes) {
+//    if (node->mesh) {
+//      uboCount++;
+//    }
+//  }
+//  for (auto material : materials) {
+//    if (material.baseColorTexture != nullptr) {
+//      imageCount++;
+//    }
+//  }
 
+//  std::cout << "Image count == " << imageCount << std::endl;
+//  std::vector<VkDescriptorPoolSize> poolSizes = { {
+//      VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, uboCount }, };
+//  if (imageCount > 0) {
+//    if (descriptorBindingFlags & DescriptorBindingFlags::ImageBaseColor) {
+//      poolSizes.push_back( { VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+//          imageCount });
+//    }
+//    if (descriptorBindingFlags & DescriptorBindingFlags::ImageNormalMap) {
+//      poolSizes.push_back( { VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+//          imageCount });
+//    }
+//  }
+//  VkDescriptorPoolCreateInfo descriptorPoolCI { };
+//  descriptorPoolCI.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+//  descriptorPoolCI.poolSizeCount = static_cast<uint32_t>(poolSizes.size());
+//  descriptorPoolCI.pPoolSizes = poolSizes.data();
+//  descriptorPoolCI.maxSets = uboCount + imageCount;
+//  VK_CHECK_RESULT(
+//      vkCreateDescriptorPool(device->logicalDevice, &descriptorPoolCI, nullptr,
+//          &descriptorPool));
+//
   // Descriptors for per-node uniform buffers
   {
     // Layout is global, so only create if it hasn't already been created before
@@ -1588,9 +1513,9 @@ void vkglBSP::Model::loadFromFile(std::string filename,
           vkCreateDescriptorSetLayout(device->logicalDevice,
               &descriptorLayoutCI, nullptr, &descriptorSetLayoutUbo));
     }
-    for (auto node : nodes) {
-      prepareNodeDescriptor(node, descriptorSetLayoutUbo);
-    }
+//    for (auto node : nodes) {
+//      prepareNodeDescriptor(node, descriptorSetLayoutUbo);
+//    }
   }
 
   // Descriptors for per-material images
@@ -1622,60 +1547,69 @@ void vkglBSP::Model::loadFromFile(std::string filename,
           vkCreateDescriptorSetLayout(device->logicalDevice,
               &descriptorLayoutCI, nullptr, &descriptorSetLayoutImage));
     }
-    for (auto &material : materials) {
-      if (material.baseColorTexture != nullptr) {
-        material.createDescriptorSet(descriptorPool,
-            vkglBSP::descriptorSetLayoutImage, descriptorBindingFlags);
-      }
-    }
+//    for (auto &material : materials) {
+//      if (material.baseColorTexture != nullptr) {
+//        material.createDescriptorSet(descriptorPool,
+//            vkglBSP::descriptorSetLayoutImage, descriptorBindingFlags);
+//      }
+//    }
   }
 }
 
 void vkglBSP::Model::bindBuffers(VkCommandBuffer commandBuffer) {
   const VkDeviceSize offsets[1] = { 0 };
-  vkCmdBindVertexBuffers(commandBuffer, 0, 1, &vertices.buffer, offsets);
-  vkCmdBindIndexBuffer(commandBuffer, indices.buffer, 0, VK_INDEX_TYPE_UINT32);
+//  vkCmdBindVertexBuffers(commandBuffer, 0, 1, &loadmodel->vertex_buffer,
+//      offsets);
+  vkCmdBindIndexBuffer(commandBuffer, loadmodel->index_buffer, 0,
+      VK_INDEX_TYPE_UINT32);
   buffersBound = true;
 }
 
 void vkglBSP::Model::drawNode(Node *node, VkCommandBuffer commandBuffer,
     uint32_t renderFlags, VkPipelineLayout pipelineLayout,
     uint32_t bindImageSet) {
-  if (node->mesh) {
-    for (Primitive *primitive : node->mesh->primitives) {
-      bool skip = false;
-      const vkglBSP::Material &material = primitive->material;
-      if (renderFlags & RenderFlags::RenderOpaqueNodes) {
-        skip = (material.alphaMode != Material::ALPHAMODE_OPAQUE);
-      }
-      if (renderFlags & RenderFlags::RenderAlphaMaskedNodes) {
-        skip = (material.alphaMode != Material::ALPHAMODE_MASK);
-      }
-      if (renderFlags & RenderFlags::RenderAlphaBlendedNodes) {
-        skip = (material.alphaMode != Material::ALPHAMODE_BLEND);
-      }
-      if (!skip) {
-        if (renderFlags & RenderFlags::BindImages) {
-          vkCmdBindDescriptorSets(commandBuffer,
-              VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, bindImageSet, 1,
-              &material.descriptorSet, 0, nullptr);
-        }
-        vkCmdDrawIndexed(commandBuffer, primitive->indexCount, 1,
-            primitive->firstIndex, 0, 0);
-      }
-    }
-  }
-  for (auto &child : node->children) {
-    drawNode(child, commandBuffer, renderFlags);
-  }
+//  if (node->mesh) {
+//    for (Primitive *primitive : node->mesh->primitives) {
+//      bool skip = false;
+//      const vkglBSP::Material &material = primitive->material;
+//      if (renderFlags & RenderFlags::RenderOpaqueNodes) {
+//        skip = (material.alphaMode != Material::ALPHAMODE_OPAQUE);
+//      }
+//      if (renderFlags & RenderFlags::RenderAlphaMaskedNodes) {
+//        skip = (material.alphaMode != Material::ALPHAMODE_MASK);
+//      }
+//      if (renderFlags & RenderFlags::RenderAlphaBlendedNodes) {
+//        skip = (material.alphaMode != Material::ALPHAMODE_BLEND);
+//      }
+//      if (!skip) {
+//        if (renderFlags & RenderFlags::BindImages) {
+//          vkCmdBindDescriptorSets(commandBuffer,
+//              VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, bindImageSet, 1,
+//              &material.descriptorSet, 0, nullptr);
+//        }
+//
+////
+////
+////        vkCmdDrawIndexed(commandBuffer, primitive->indexCount, 1,
+////            primitive->firstIndex, 0, 0);
+//      }
+//    }
+//  }
+//  for (auto &child : node->children) {
+//    drawNode(child, commandBuffer, renderFlags);
+//  }
+//
+
+//  vkCmdDrawIndexed(commandBuffer, loadmodel->edges.size(), 1, 0, 0, 0);
 }
 
 void vkglBSP::Model::draw(VkCommandBuffer commandBuffer, uint32_t renderFlags,
     VkPipelineLayout pipelineLayout, uint32_t bindImageSet) {
   if (!buffersBound) {
     const VkDeviceSize offsets[1] = { 0 };
-    vkCmdBindVertexBuffers(commandBuffer, 0, 1, &vertices.buffer, offsets);
-    vkCmdBindIndexBuffer(commandBuffer, indices.buffer, 0,
+    vkCmdBindVertexBuffers(commandBuffer, 0, 1, &loadmodel->vertex_buffer,
+        offsets);
+    vkCmdBindIndexBuffer(commandBuffer, loadmodel->index_buffer, 0,
         VK_INDEX_TYPE_UINT32);
   }
   for (auto &node : nodes) {
@@ -1870,9 +1804,9 @@ vkglBSP::QModel* vkglBSP::Model::modLoadModel(vkglBSP::QModel *mod,
 //
   buf = comLoadStackFile(mod->name, stackbuf, sizeof(stackbuf), &mod->path_id);
   if (!buf) {
-    if (crash)
-    {
-      snprintf(errorBuff, sizeof(char) * 255, "modLoadModel: %s not found", mod->name);
+    if (crash) {
+      snprintf(errorBuff, sizeof(char) * 255, "modLoadModel: %s not found",
+          mod->name);
       throw std::runtime_error(errorBuff);
     }
     return nullptr;
@@ -1985,12 +1919,12 @@ void vkglBSP::Model::modLoadBrushModel(QModel *mod, void *buffer) {
   DModel *bm;
   float radius; //johnfitz
 
-  loadmodel->type = ModBrush;
-
   header = (DHeader*) buffer;
 
   //  mod->bspversion = LittleLong(header->version);
   mod->bspversion = header->version;
+
+  std::cout << "bsp version =  " << mod->bspversion << std::endl;
 
   switch (mod->bspversion) {
   case BSPVERSION:
@@ -2016,19 +1950,18 @@ void vkglBSP::Model::modLoadBrushModel(QModel *mod, void *buffer) {
   mod_base = (byte*) header;
 //
 //  for (i = 0; i < (int) sizeof(dheader_t) / 4; i++)
-////    ((int*) header)[i] = LittleLong(((int*) header)[i]);
-//    ((int*) header)[i] = (((int*) header)[i]);
+//    ((int*) header)[i] = LittleLong(((int*) header)[i]);
 //
 //// load into heap
 //
-//  modLoadVertexes(&header->lumps[LUMP_VERTEXES]);
-//  Mod_LoadEdges(&header->lumps[LUMP_EDGES], bsp2);
-//  Mod_LoadSurfedges(&header->lumps[LUMP_SURFEDGES]);
+  modLoadVertexes(&header->lumps[LUMP_VERTEXES]);
+  modLoadEdges(&header->lumps[LUMP_EDGES]);
+  modLoadSurfedges(&header->lumps[LUMP_SURFEDGES]);
 //  Mod_LoadTextures(&header->lumps[LUMP_TEXTURES]);
 //  Mod_LoadLighting(&header->lumps[LUMP_LIGHTING]);
 //  Mod_LoadPlanes(&header->lumps[LUMP_PLANES]);
 //  Mod_LoadTexinfo(&header->lumps[LUMP_TEXINFO]);
-//  Mod_LoadFaces(&header->lumps[LUMP_FACES], bsp2);
+  modLoadFaces(&header->lumps[LUMP_FACES]);
 //  Mod_LoadMarksurfaces(&header->lumps[LUMP_MARKSURFACES], bsp2);
 //
 //  if (!bsp2 && external_vis.value && sv.modelname[0]
@@ -2132,24 +2065,23 @@ void vkglBSP::Model::modLoadVertexes(Lump *l) {
 
   in = (DVertex*) (mod_base + l->fileofs);
   if (l->filelen % sizeof(*in)) {
-    char buff[256];
-    snprintf(buff, 255, "modLoadVertexes: funny lump size in %s",
+    snprintf(errorBuff, 255, "modLoadVertexes: funny lump size in %s",
         loadmodel->name);
-    throw std::runtime_error(buff);
+    throw std::runtime_error(errorBuff);
   }
 
   count = l->filelen / sizeof(*in);
 
+  for (i = 0; i < count; i++, in++) {
+    MVertex v;
+    v.position.x = in->point[0];
+    v.position.y = in->point[1];
+    v.position.z = in->point[2];
+    out.push_back(v);
+  }
+
   loadmodel->vertexes = out;
   loadmodel->numvertexes = count;
-//
-//  for (i = 0; i < count; i++, in++, out++) {
-//    MVertex v;
-//    v.position.x = in->point[0];
-//    v.position.y = in->point[1];
-//    v.position.z = in->point[2];
-//    out.push_back(v);
-//  }
 }
 
 void vkglBSP::Model::init() {
@@ -2160,6 +2092,29 @@ void vkglBSP::Model::init() {
 
   PackFile startBSP = comFindFile("maps/start.bsp");
 
+  byte *bspBytes = new byte[sizeof(byte) * (startBSP.filelen + 1)];
+
+  fseek(pak.handle, startBSP.filepos, SEEK_SET);
+  std::cout << "fileln = " << startBSP.filelen;
+
+  fread(bspBytes, 1, startBSP.filelen, pak.handle);
+  std::cout << " filepos = " << startBSP.filepos << std::endl;
+
+  int modType = (bspBytes[0] | (bspBytes[1] << 8) | (bspBytes[2] << 16)
+      | (bspBytes[3] << 24));
+  std::cout << "modType " << modType << std::endl;
+
+  loadmodel = &mod;
+  mod_base = bspBytes;
+
+  modLoadBrushModel(&mod, bspBytes);
+//  buildVertexBuffer();
+
+  loadmodel->vertexes = backupVertex;
+  loadmodel->edges = backupIndex;
+
+  delete[] bspBytes;
+  fclose(pak.handle);
 
 }
 
@@ -2200,7 +2155,8 @@ vkglBSP::Pack vkglBSP::Model::comLoadPackFile(const char *packfile) {
   }
 
   if (!numPackFiles) {
-    std::cerr << "WARNING: " << packfile << " has no files, ignored" << std::endl;
+    std::cerr << "WARNING: " << packfile << " has no files, ignored"
+        << std::endl;
     fclose(f);
     return pack;
   }
@@ -2227,6 +2183,7 @@ vkglBSP::Pack vkglBSP::Model::comLoadPackFile(const char *packfile) {
 
   strncpy(pack.filename, packfile, sizeof(pack.filename));
 
+  pack.handle = f;
   pack.numfiles = numPackFiles;
   pack.files = newFiles;
 
@@ -2244,15 +2201,270 @@ long vkglBSP::Model::sysFileLength(FILE *f) {
   return end;
 }
 
-vkglBSP::PackFile vkglBSP::Model::comFindFile(const char * filename) {
-   for(const auto & f : this->pak0->files) {
-     if(strcmp(f.name, filename) != 0) {
-       continue;
-     }
+vkglBSP::PackFile vkglBSP::Model::comFindFile(const char *filename) {
+  for (const auto &f : this->pak0->files) {
+    if (strcmp(f.name, filename) != 0) {
+      continue;
+    }
 
-     return f;
-   }
+    return f;
+  }
 
-   std::cerr << "File " << filename << " not found" << std::endl;
-   return PackFile();
+  std::cerr << "File " << filename << " not found" << std::endl;
+  return PackFile();
 }
+
+void vkglBSP::Model::modLoadEdges(Lump *l) {
+  std::vector<MEdge> out;
+  int i, count;
+
+  DSEdge *in = (DSEdge*) (mod_base + l->fileofs);
+
+  if (l->filelen % sizeof(*in)) {
+    snprintf(errorBuff, 255, "modLoadEdges: funny lump size in %s",
+        loadmodel->name);
+    throw std::runtime_error(errorBuff);
+  }
+
+  count = l->filelen / sizeof(*in);
+
+  for (i = 0; i < count; i++, in++) {
+    MEdge edge;
+    edge.v[0] = in->v[0];
+    edge.v[1] = in->v[1];
+
+    out.push_back(edge);
+    std::cout << i << " " << in->v[0] << " " << in->v[1] << std::endl;
+  }
+
+  loadmodel->medges = out;
+  loadmodel->numedges = count;
+  std::cout << "Edges computed" << std::endl;
+}
+
+void vkglBSP::Model::modLoadSurfedges(Lump *l) {
+  int i, count;
+  int *in;
+  std::vector<int> out;
+
+  in = (int*) (mod_base + l->fileofs);
+  if (l->filelen % sizeof(*in)) {
+    snprintf(errorBuff, 255, "modLoadSurfedges: funny lump size in %s",
+        loadmodel->name);
+    throw std::runtime_error(errorBuff);
+  }
+  count = l->filelen / sizeof(*in);
+  loadmodel->numsurfedges = count;
+
+  for (i = 0; i < count; i++) {
+    out.push_back(in[i]);
+  }
+
+  loadmodel->surfedges = out;
+  std::cout << "surface completed" << std::endl;
+}
+
+void vkglBSP::Model::buildVertexBuffer(void) {
+  unsigned int numverts, varray_bytes, varray_index;
+  int i, j;
+  QModel *m = loadmodel;
+  float *varray;
+  int remaining_size;
+  int copy_offset;
+
+  // count all verts in all models
+  numverts = 0;
+
+  for (i = 0; i < m->numsurfaces; i++) {
+    numverts += m->surfaces[i].numedges;
+  }
+
+  // build vertex array
+  varray_bytes = VERTEXSIZE * sizeof(float) * numverts;
+  varray = (float*) malloc(varray_bytes);
+  varray_index = 0;
+
+  for (i = 0; i < m->numsurfaces; i++) {
+    MSurface *s = &m->surfaces[i];
+    s->vbo_firstvert = varray_index;
+    memcpy(&varray[VERTEXSIZE * varray_index], s->polys.verts,
+    VERTEXSIZE * sizeof(float) * s->numedges);
+    varray_index += s->numedges;
+  }
+
+  int zk = ((varray_bytes - 3) / 3);
+
+  for (i = 0; i < zk; i++) {
+    float x = varray[i * 3 + 1];
+    float y = varray[i * 3 + 2];
+    float z = varray[i * 3 + 3];
+
+    glm::vec3 ve = glm::vec3(x, y, z);
+    MVertex vertex { ve };
+    std::cout << "i = " << i * 3 + 3 << " zk = " << zk << " varray_bytres = "
+        << varray_bytes << std::endl;
+  }
+
+  free(varray);
+}
+
+void vkglBSP::Model::modLoadFaces(Lump *l) {
+  DSFace *ins;
+  DLFace *inl;
+  std::vector<MSurface> surfaces;
+  int i, count, surfnum, lofs;
+  int planenum, side, texinfon;
+
+  ins = (DSFace*) (mod_base + l->fileofs);
+  inl = nullptr;
+
+  if (l->filelen % sizeof(*ins)) {
+    snprintf(errorBuff, 255, "modLoadFaces: funny lump size in %s",
+        loadmodel->name);
+    throw std::runtime_error(errorBuff);
+  }
+
+  count = l->filelen / sizeof(*ins);
+
+  loadmodel->numsurfaces = count;
+
+  for (surfnum = 0; surfnum < count; surfnum++) {
+    MSurface out;
+    out.firstedge = ins->firstedge;
+    out.numedges = ins->numedges;
+    planenum = ins->planenum;
+    side = ins->side;
+    texinfon = ins->texinfo;
+
+    for (i = 0; i < MAXLIGHTMAPS; i++)
+      out.styles[i] = ins->styles[i];
+
+    lofs = ins->lightofs;
+    ins++;
+
+    out.flags = 0;
+
+    if (side)
+      out.flags |= SURF_PLANEBACK;
+
+    out.plane = loadmodel->planes + planenum;
+
+    out.texinfo = loadmodel->texinfo + texinfon;
+
+//    CalcSurfaceExtents(out);
+
+    // lighting info
+    if (lofs == -1)
+      out.samples = nullptr;
+    else
+      out.samples = loadmodel->lightdata + (lofs * 3); //johnfitz -- lit support via lordhavoc (was "+ i")
+
+    surfaces.push_back(out);
+
+//    //johnfitz -- this section rewritten
+//    if (!q_strncasecmp(out->texinfo->texture->name, "sky", 3)) // sky surface //also note -- was Q_strncmp, changed to match qbsp
+//        {
+//      out->flags |= (SURF_DRAWSKY | SURF_DRAWTILED);
+//      Mod_PolyForUnlitSurface(out); //no more subdivision
+//    } else if (out->texinfo->texture->name[0] == '*') // warp surface
+//        {
+//      out->flags |= (SURF_DRAWTURB | SURF_DRAWTILED);
+//
+//      // detect special liquid types
+//      if (!strncmp(out->texinfo->texture->name, "*lava", 5))
+//        out->flags |= SURF_DRAWLAVA;
+//      else if (!strncmp(out->texinfo->texture->name, "*slime", 6))
+//        out->flags |= SURF_DRAWSLIME;
+//      else if (!strncmp(out->texinfo->texture->name, "*tele", 5))
+//        out->flags |= SURF_DRAWTELE;
+//      else
+//        out->flags |= SURF_DRAWWATER;
+//
+//      Mod_PolyForUnlitSurface(out);
+//      GL_SubdivideSurface(out);
+//    } else if (out->texinfo->texture->name[0] == '{') // ericw -- fence textures
+//        {
+//      out->flags |= SURF_DRAWFENCE;
+//    } else if (out->texinfo->flags & TEX_MISSING) // texture is missing from bsp
+//        {
+//      if (out->samples) //lightmapped
+//      {
+//        out->flags |= SURF_NOTEXTURE;
+//      } else // not lightmapped
+//      {
+//        out->flags |= (SURF_NOTEXTURE | SURF_DRAWTILED);
+    modPolyForUnlitSurface(&out);
+//      }
+//    }
+//    //johnfitz
+  }
+
+  loadmodel->surfaces = surfaces;
+}
+
+void vkglBSP::Model::modPolyForUnlitSurface(MSurface *fa) {
+  int numverts, i, lindex;
+  glm::vec3 vec;
+  float texscale;
+
+//  if (fa->flags & (SURF_DRAWTURB | SURF_DRAWSKY))
+//    texscale = (1.0/128.0); //warp animation repeats every 128
+//  else
+  texscale = (1.0 / 32.0); //to match r_notexture_mip
+
+  // convert edges back to a normal polygon
+  numverts = 0;
+
+  std::vector<MEdge> pedges = loadmodel->medges;
+
+  for (i = 0; i < fa->numedges; i++) {
+    std::cout << "surfedge.size = " << loadmodel->surfedges.size()
+        << " and firstedge = " << fa->firstedge + i << std::endl;
+    lindex = loadmodel->surfedges.at(fa->firstedge + i);
+
+    std::cout << "li index = " << lindex << "loadmodel->vertex.size = "
+        << loadmodel->vertexes.size() << std::endl;
+
+    if (lindex > 0) {
+      MEdge idx = pedges.at(lindex);
+      vec = loadmodel->vertexes.at(idx.v[0]).position;
+      backupIndex.push_back(idx.v[0]);
+//
+//      vec = loadmodel->vertexes.at(loadmodel->edges[lindex]).position;
+//      backupIndex.push_back(loadmodel->edges[lindex]);
+    } else {
+      MEdge idx = pedges.at(-lindex);
+      vec = loadmodel->vertexes.at(idx.v[1]).position;
+      backupIndex.push_back(idx.v[1]);
+
+//      vec = loadmodel->vertexes.at(loadmodel->edges[-lindex]+1).position;
+//      backupIndex.push_back(loadmodel->edges[-lindex]+1);
+    }
+
+    MVertex v;
+    v.position = vec;
+    backupVertex.push_back(v);
+    numverts++;
+  }
+
+//
+//  //create the poly
+//  GlPoly * poly = &fa->polys;
+//  poly->next = nullptr;
+//  poly->numverts = numverts;
+//
+//  int idx = 0;
+//  std::cout << "Numverts = " << numverts << std::endl;
+//  for (i=0; i<numverts; i++)
+//  {
+//    std::cout << "i = " << i << std::endl;
+//    poly->verts[idx][0] = verts[i].x;
+//    poly->verts[idx+1][0] = verts[i].y;
+//    poly->verts[idx+2][0] = verts[i].z;
+////    poly->verts[i][3] = DotProduct(vec, fa->texinfo->vecs[0]) * texscale;
+////    poly->verts[i][4] = DotProduct(vec, fa->texinfo->vecs[1]) * texscale;
+//  }
+
+  std::cout << "Done with modPolyForUnlitSurface" << std::endl;
+}
+

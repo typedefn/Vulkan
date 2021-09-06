@@ -28,6 +28,9 @@
 #include <android/asset_manager.h>
 #endif
 
+#define DotProduct(x,y) (x[0]*y[0]+x[1]*y[1]+x[2]*y[2])
+
+
 #define MAX_QPATH 64    // max length of a quake game pathname
 #define MAX_MAP_HULLS   4
 #define NUM_AMBIENTS      4   // automatic ambient sounds
@@ -71,6 +74,19 @@
 #define MAX_HANDLES   32  /* johnfitz -- was 10 */
 #define MAX_FILES_IN_PACK 2048
 
+#define SURF_PLANEBACK    2
+#define SURF_DRAWSKY    4
+#define SURF_DRAWSPRITE   8
+#define SURF_DRAWTURB   0x10
+#define SURF_DRAWTILED    0x20
+#define SURF_DRAWBACKGROUND 0x40
+#define SURF_UNDERWATER   0x80
+#define SURF_NOTEXTURE    0x100 //johnfitz
+#define SURF_DRAWFENCE    0x200
+#define SURF_DRAWLAVA   0x400
+#define SURF_DRAWSLIME    0x800
+#define SURF_DRAWTELE   0x1000
+#define SURF_DRAWWATER    0x2000
 typedef unsigned char byte;
 typedef uintptr_t src_offset_t;
 typedef float soa_aabb_t[2 * 3 * 8]; // 8 AABB's in SoA form
@@ -99,6 +115,45 @@ extern VkMemoryPropertyFlags memoryPropertyFlags;
 extern uint32_t descriptorBindingFlags;
 
 struct Node;
+
+// note that edge 0 is never used, because negative edge nums are used for
+// counterclockwise use of the edge in a face
+struct DSEdge {
+  unsigned short v[2];   // vertex numbers
+};
+
+struct DLEdge {
+  unsigned int v[2];   // vertex numbers
+};
+
+struct DSFace
+{
+  short   planenum;
+  short   side;
+
+  int     firstedge;    // we must support > 64k edges
+  short   numedges;
+  short   texinfo;
+
+// lighting info
+  byte    styles[MAXLIGHTMAPS];
+  int     lightofs;   // start of [numstyles*surfsize] samples
+};
+
+struct DLFace
+{
+  int     planenum;
+  int     side;
+
+  int     firstedge;    // we must support > 64k edges
+  int     numedges;
+  int     texinfo;
+
+// lighting info
+  byte    styles[MAXLIGHTMAPS];
+  int     lightofs;   // start of [numstyles*surfsize] samples
+};
+
 
 struct DVertex {
   float point[3];
@@ -231,7 +286,7 @@ struct MSurface {
 
   int light_s, light_t; // gl lightmap coordinates
 
-  GlPoly *polys;       // multiple if warped
+  GlPoly polys;       // multiple if warped
   MSurface *texturechain;
 
   MTexInfo *texinfo;
@@ -343,7 +398,8 @@ struct QModel {
   std::vector<MVertex> vertexes;
 
   int numedges;
-  MEdge *edges;
+  std::vector<uint32_t> edges;
+  std::vector<MEdge> medges;
 
   int numnodes;
   MNode *nodes;
@@ -352,10 +408,10 @@ struct QModel {
   MTexInfo *texinfo;
 
   int numsurfaces;
-  MSurface *surfaces;
+  std::vector<MSurface> surfaces;
 
   int numsurfedges;
-  int *surfedges;
+  std::vector<int> surfedges;
 
   int numclipnodes;
   MClipNode *clipnodes; //johnfitz -- was dclipnode_t
@@ -384,7 +440,7 @@ struct QModel {
   //
   // alias model
   //
-  VkBuffer vertex_buffer;
+  VkBuffer vertex_buffer = VK_NULL_HANDLE;
   struct glheap_s *vertex_heap;
   struct glheapnode_s *vertex_heap_node;
   VkBuffer index_buffer;
@@ -394,6 +450,8 @@ struct QModel {
   int vboxyzofs; // offset in vbo of hdr->numposes*hdr->numverts_vbo meshxyz_t
   int vbostofs;       // offset in vbo of hdr->numverts_vbo meshst_t
 
+  VkDeviceMemory memory = VK_NULL_HANDLE;
+  VkDeviceMemory index_memory = VK_NULL_HANDLE;
   //
   // additional model data
   //
@@ -457,7 +515,7 @@ struct PackFile {
 
 struct Pack {
   char filename[MAX_OSPATH];
-  int handle;
+  FILE *handle;
   int numfiles;
   std::vector<PackFile> files;
 };
@@ -465,17 +523,15 @@ struct Pack {
 //
 // on-disk pakfile
 //
-struct DPackFile
-{
-  char  name[56];
-  int   filepos, filelen;
-} ;
+struct DPackFile {
+  char name[56];
+  int filepos, filelen;
+};
 
-struct DPackHeader
-{
-  char  id[4];
-  int   dirofs;
-  int   dirlen;
+struct DPackHeader {
+  char id[4];
+  int dirofs;
+  int dirlen;
 };
 
 /*
@@ -703,27 +759,18 @@ private:
   void createEmptyTexture(VkQueue transferQueue);
   byte *loadbuf;
   int loadsize;
-  QModel *loadmodel;
+
   char loadname[32]; // for hunk tags
   byte *mod_base;
   char errorBuff[256];
-  FILE   *sys_handles[MAX_HANDLES];
   Pack *pak0;
-
+std::vector<MVertex> backupVertex;
+std::vector<uint32_t> backupIndex;
+  QModel mod;
 public:
+  QModel *loadmodel;
   vks::VulkanDevice *device;
   VkDescriptorPool descriptorPool;
-
-  struct Vertices {
-    int count;
-    VkBuffer buffer;
-    VkDeviceMemory memory;
-  } vertices;
-  struct Indices {
-    int count;
-    VkBuffer buffer;
-    VkDeviceMemory memory;
-  } indices;
 
   std::vector<Node*> nodes;
   std::vector<Node*> linearNodes;
@@ -813,8 +860,12 @@ public:
   void init();
   Pack comLoadPackFile(const char *packfile);
   int sysFileOpenRead(const char *path, int *hndl);
-  long sysFileLength (FILE *f);
-  PackFile comFindFile(const char * filename);
-
+  long sysFileLength(FILE *f);
+  PackFile comFindFile(const char *filename);
+  void modLoadEdges(Lump *l);
+  void modLoadSurfedges(Lump *l);
+  void buildVertexBuffer(void);
+  void modLoadFaces(Lump *l);
+  void modPolyForUnlitSurface (MSurface *fa);
 };
 }
