@@ -2102,8 +2102,8 @@ void vkglBSP::Model::modLoadVertexes(Lump *l) {
   for (i = 0; i < count; i++, in++) {
     MVertex v;
     v.position.x = in->point[0];
-    v.position.y = in->point[1];
-    v.position.z = in->point[2];
+    v.position.y = -in->point[2];
+    v.position.z = in->point[1];
     out.push_back(v);
   }
 
