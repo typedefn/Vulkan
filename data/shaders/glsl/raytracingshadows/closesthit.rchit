@@ -31,7 +31,8 @@ Vertex unpack(uint index)
 {
 	// Unpack the vertices from the SSBO using the glTF vertex structure
 	// The multiplier is the size of the vertex divided by four float components (=16 bytes)
-	const int m = ubo.vertexSize / 16;
+//	const int m = ubo.vertexSize / 16;
+        const int m = 1;
 
 	vec4 d0 = vertices.v[m * index + 0];
 	vec4 d1 = vertices.v[m * index + 1];
@@ -40,7 +41,7 @@ Vertex unpack(uint index)
 	Vertex v;
 	v.pos = d0.xyz;
 	v.normal = vec3(d0.w, d1.x, d1.y);
-	v.color = vec4(d2.x, d2.y, d2.z, 1.0);
+	v.color = vec4(0.7, 0.7, 0.7, 1.0);
 
 	return v;
 }
@@ -64,12 +65,12 @@ void main()
  
 	// Shadow casting
 	float tmin = 0.001;
-	float tmax = 10000.0;
+	float tmax = 1000.0;
 	vec3 origin = gl_WorldRayOriginEXT + gl_WorldRayDirectionEXT * gl_HitTEXT;
 	shadowed = true;  
 	// Trace shadow ray and offset indices to match shadow hit/miss shader group indices
 	traceRayEXT(topLevelAS, gl_RayFlagsTerminateOnFirstHitEXT | gl_RayFlagsOpaqueEXT | gl_RayFlagsSkipClosestHitShaderEXT, 0xFF, 1, 0, 1, origin, tmin, lightVector, tmax, 2);
 	if (shadowed) {
-		hitValue *= 0.3;
+		hitValue *= 0.8;
 	}
 }

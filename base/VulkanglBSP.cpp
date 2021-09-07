@@ -2416,8 +2416,8 @@ void vkglBSP::Model::modLoadFaces(Lump *l) {
 
 void vkglBSP::Model::modPolyForUnlitSurface(MSurface *fa) {
   int numverts, i, lindex;
-  glm::vec3 vec;
-  std::vector<glm::vec3> verts;
+  glm::vec4 vec;
+  std::vector<glm::vec4> verts;
 
   float texscale;
 

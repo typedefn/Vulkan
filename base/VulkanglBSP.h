@@ -160,7 +160,7 @@ struct DVertex {
 };
 
 struct MVertex {
-  glm::vec3 position;
+  glm::vec4 position;
 };
 
 struct MEdge {
@@ -270,7 +270,7 @@ struct GlPoly {
   struct glpoly_s *next;
   int numverts;
 //  float verts[4][VERTEXSIZE]; // variable sized (xyz s1t1 s2t2)
-  std::vector<glm::vec3> verts;
+  std::vector<glm::vec4> verts;
 };
 
 struct MSurface {
