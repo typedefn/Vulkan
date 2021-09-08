@@ -1596,7 +1596,8 @@ void vkglBSP::Model::bindBuffers(VkCommandBuffer commandBuffer) {
 ////  vkCmdDrawIndexed(commandBuffer, loadmodel->edges.size(), 1, 0, 0, 0);
 //}
 
-void vkglBSP::Model::draw(const VkCommandBuffer commandBuffer, VkPipeline pipeline, VkPipelineLayout pipelineLayout) {
+void vkglBSP::Model::draw(const VkCommandBuffer commandBuffer,
+    VkPipeline pipeline, VkPipelineLayout pipelineLayout) {
 //  vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
 //    vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1, &descriptorSet, 0, NULL);
 
@@ -1976,9 +1977,9 @@ void vkglBSP::Model::modLoadBrushModel(QModel *mod, void *buffer) {
 // swap all the lumps
   mod_base = (byte*) header;
 //
-//  for (i = 0; i < (int) sizeof(dheader_t) / 4; i++)
-//    ((int*) header)[i] = LittleLong(((int*) header)[i]);
-//
+//  for (i = 0; i < (int) sizeof(DHeader) / 4; i++)
+//    ((int*) header)[i] = (((int*) header)[i]);
+
 //// load into heap
 //
   modLoadVertexes(&header->lumps[LUMP_VERTEXES]);
@@ -2087,7 +2088,6 @@ void vkglBSP::Model::modLoadBrushModel(QModel *mod, void *buffer) {
 
 void vkglBSP::Model::modLoadVertexes(Lump *l) {
   DVertex *in;
-  std::vector<MVertex> out;
   int i, count;
 
   in = (DVertex*) (mod_base + l->fileofs);
@@ -2103,11 +2103,10 @@ void vkglBSP::Model::modLoadVertexes(Lump *l) {
     MVertex v;
     v.position.x = in->point[0];
     v.position.y = -in->point[2];
-    v.position.z = in->point[1];
-    out.push_back(v);
+    v.position.z = -in->point[1];
+    loadmodel->vertexes.push_back(v);
   }
 
-  loadmodel->vertexes = out;
   loadmodel->numvertexes = count;
 }
 
@@ -2149,9 +2148,9 @@ void vkglBSP::Model::init() {
 //    GlPoly *p = &loadmodel->surfaces.at(2).polys;
 
     baseIndex = s.firstedge;
+
     const int numverts = p->verts.size();
-    const int numtriangles = (numverts - 2);
-    const int numindices = numtriangles * 3;
+    const int numtriangles = p->numverts - 2;
 
     for (const auto &v : p->verts) {
       MVertex mv;
@@ -2273,7 +2272,6 @@ vkglBSP::PackFile vkglBSP::Model::comFindFile(const char *filename) {
 }
 
 void vkglBSP::Model::modLoadEdges(Lump *l) {
-  std::vector<MEdge> out;
   int i, count;
 
   DSEdge *in = (DSEdge*) (mod_base + l->fileofs);
@@ -2291,10 +2289,9 @@ void vkglBSP::Model::modLoadEdges(Lump *l) {
     edge.v[0] = in->v[0];
     edge.v[1] = in->v[1];
 
-    out.push_back(edge);
+    loadmodel->medges.push_back(edge);
   }
 
-  loadmodel->medges = out;
   loadmodel->numedges = count;
   std::cout << "Edges computed" << std::endl;
 }
@@ -2324,7 +2321,6 @@ void vkglBSP::Model::modLoadSurfedges(Lump *l) {
 void vkglBSP::Model::modLoadFaces(Lump *l) {
   DSFace *ins;
   DLFace *inl;
-  std::vector<MSurface> surfaces;
   int i, count, surfnum, lofs;
   int planenum, side, texinfon;
 
@@ -2408,16 +2404,13 @@ void vkglBSP::Model::modLoadFaces(Lump *l) {
 //      }
 //    }
 //    //johnfitz
-    surfaces.push_back(out);
+    loadmodel->surfaces.push_back(out);
   }
 
-  loadmodel->surfaces = surfaces;
 }
 
 void vkglBSP::Model::modPolyForUnlitSurface(MSurface *fa) {
   int numverts, i, lindex;
-  glm::vec4 vec;
-  std::vector<glm::vec4> verts;
 
   float texscale;
 
@@ -2432,36 +2425,20 @@ void vkglBSP::Model::modPolyForUnlitSurface(MSurface *fa) {
   std::vector<MEdge> pedges = loadmodel->medges;
 
   for (i = 0; i < fa->numedges; i++) {
+    glm::vec4 vec;
     lindex = loadmodel->surfedges.at(fa->firstedge + i);
     if (lindex > 0) {
       MEdge idx = pedges.at(lindex);
       vec = loadmodel->vertexes.at(idx.v[0]).position;
-//
-//      vec = loadmodel->vertexes.at(loadmodel->edges[lindex]).position;
-//      backupIndex.push_back(idx.v[0]);
     } else {
       MEdge idx = pedges.at(-lindex);
       vec = loadmodel->vertexes.at(idx.v[1]).position;
-
-//      vec = loadmodel->vertexes.at(loadmodel->edges[-lindex]+1).position;
-//      backupIndex.push_back(idx.v[1]);
     }
 
-    verts.push_back(vec);
-
-    MVertex v;
-    v.position = vec;
-    backupVertex.push_back(v);
+    fa->polys.verts.push_back(vec);
     numverts++;
   }
-
-//
-//  //create the poly
   fa->polys.numverts = numverts;
-//
-  std::cout << "Numverts = " << numverts << std::endl;
-  for (i = 0; i < numverts; i++) {
-    fa->polys.verts.push_back(verts.at(i));
-  }
+
 }
 
