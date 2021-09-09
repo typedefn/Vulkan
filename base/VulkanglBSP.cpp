@@ -855,28 +855,32 @@ void vkglBSP::Model::createEmptyTexture(VkQueue transferQueue) {
  glTF model loading and rendering class
  */
 vkglBSP::Model::~Model() {
-  vkDestroyBuffer(device->logicalDevice, loadmodel->vertex_buffer, nullptr);
-  vkFreeMemory(device->logicalDevice, loadmodel->memory, nullptr);
-  vkDestroyBuffer(device->logicalDevice, loadmodel->index_buffer, nullptr);
-  vkFreeMemory(device->logicalDevice, loadmodel->index_memory, nullptr);
-  for (auto texture : textures) {
-    texture.destroy();
+
+  if (device) {
+    vkDestroyBuffer(device->logicalDevice, loadmodel->vertex_buffer, nullptr);
+    vkFreeMemory(device->logicalDevice, loadmodel->memory, nullptr);
+    vkDestroyBuffer(device->logicalDevice, loadmodel->index_buffer, nullptr);
+    vkFreeMemory(device->logicalDevice, loadmodel->index_memory, nullptr);
+    for (auto texture : textures) {
+      texture.destroy();
+    }
+    for (auto node : nodes) {
+      delete node;
+    }
+    if (descriptorSetLayoutUbo != VK_NULL_HANDLE) {
+      vkDestroyDescriptorSetLayout(device->logicalDevice,
+          descriptorSetLayoutUbo, nullptr);
+      descriptorSetLayoutUbo = VK_NULL_HANDLE;
+    }
+    if (descriptorSetLayoutImage != VK_NULL_HANDLE) {
+      vkDestroyDescriptorSetLayout(device->logicalDevice,
+          descriptorSetLayoutImage, nullptr);
+      descriptorSetLayoutImage = VK_NULL_HANDLE;
+    }
+    vkDestroyDescriptorPool(device->logicalDevice, descriptorPool, nullptr);
+    emptyTexture.destroy();
   }
-  for (auto node : nodes) {
-    delete node;
-  }
-  if (descriptorSetLayoutUbo != VK_NULL_HANDLE) {
-    vkDestroyDescriptorSetLayout(device->logicalDevice, descriptorSetLayoutUbo,
-        nullptr);
-    descriptorSetLayoutUbo = VK_NULL_HANDLE;
-  }
-  if (descriptorSetLayoutImage != VK_NULL_HANDLE) {
-    vkDestroyDescriptorSetLayout(device->logicalDevice,
-        descriptorSetLayoutImage, nullptr);
-    descriptorSetLayoutImage = VK_NULL_HANDLE;
-  }
-  vkDestroyDescriptorPool(device->logicalDevice, descriptorPool, nullptr);
-  emptyTexture.destroy();
+
 }
 
 void vkglBSP::Model::loadNode(vkglBSP::Node *parent, const tinygltf::Node &node,
@@ -1985,7 +1989,7 @@ void vkglBSP::Model::modLoadBrushModel(QModel *mod, void *buffer) {
   modLoadVertexes(&header->lumps[LUMP_VERTEXES]);
   modLoadEdges(&header->lumps[LUMP_EDGES]);
   modLoadSurfedges(&header->lumps[LUMP_SURFEDGES]);
-//  Mod_LoadTextures(&header->lumps[LUMP_TEXTURES]);
+//  modLoadTextures(&header->lumps[LUMP_TEXTURES]);
 //  Mod_LoadLighting(&header->lumps[LUMP_LIGHTING]);
 //  Mod_LoadPlanes(&header->lumps[LUMP_PLANES]);
 //  Mod_LoadTexinfo(&header->lumps[LUMP_TEXINFO]);
@@ -2145,12 +2149,11 @@ void vkglBSP::Model::init() {
   for (auto &s : loadmodel->surfaces) {
 
     GlPoly *p = &s.polys;
-//    GlPoly *p = &loadmodel->surfaces.at(2).polys;
 
     baseIndex = s.firstedge;
 
     const int numverts = p->verts.size();
-    const int numtriangles = p->numverts - 2;
+    const int vertexCount = p->numverts - 2;
 
     for (const auto &v : p->verts) {
       MVertex mv;
@@ -2158,7 +2161,7 @@ void vkglBSP::Model::init() {
       localVertex.push_back(mv);
     }
 
-    for (int i = 0; i < numtriangles; ++i) {
+    for (int i = 0; i < vertexCount; ++i) {
       localIndex.push_back(baseIndex);
       localIndex.push_back(baseIndex + i + 1);
       localIndex.push_back(baseIndex + i + 2);
@@ -2349,6 +2352,8 @@ void vkglBSP::Model::modLoadFaces(Lump *l) {
       out.styles[i] = ins->styles[i];
 
     lofs = ins->lightofs;
+    texinfon = ins->texinfo;
+
     ins++;
 
     out.flags = 0;
@@ -2356,54 +2361,57 @@ void vkglBSP::Model::modLoadFaces(Lump *l) {
     if (side)
       out.flags |= SURF_PLANEBACK;
 
-    out.plane = loadmodel->planes + planenum;
+//    out.plane = loadmodel->planes + planenum;
 
-    out.texinfo = loadmodel->texinfo + texinfon;
+//    out.texinfo = loadmodel->texinfo + texinfon;
 
 //    CalcSurfaceExtents(out);
 
     // lighting info
-    if (lofs == -1)
-      out.samples = nullptr;
-    else
-      out.samples = loadmodel->lightdata + (lofs * 3); //johnfitz -- lit support via lordhavoc (was "+ i")
+//    if (lofs == -1)
+//      out.samples = nullptr;
+//    else
+//      out.samples = loadmodel->lightdata + (lofs * 3); //johnfitz -- lit support via lordhavoc (was "+ i")
 
-//    //johnfitz -- this section rewritten
-//    if (!q_strncasecmp(out->texinfo->texture->name, "sky", 3)) // sky surface //also note -- was Q_strncmp, changed to match qbsp
-//        {
-//      out->flags |= (SURF_DRAWSKY | SURF_DRAWTILED);
-//      Mod_PolyForUnlitSurface(out); //no more subdivision
-//    } else if (out->texinfo->texture->name[0] == '*') // warp surface
-//        {
-//      out->flags |= (SURF_DRAWTURB | SURF_DRAWTILED);
-//
-//      // detect special liquid types
-//      if (!strncmp(out->texinfo->texture->name, "*lava", 5))
-//        out->flags |= SURF_DRAWLAVA;
-//      else if (!strncmp(out->texinfo->texture->name, "*slime", 6))
-//        out->flags |= SURF_DRAWSLIME;
-//      else if (!strncmp(out->texinfo->texture->name, "*tele", 5))
-//        out->flags |= SURF_DRAWTELE;
-//      else
-//        out->flags |= SURF_DRAWWATER;
-//
-//      Mod_PolyForUnlitSurface(out);
-//      GL_SubdivideSurface(out);
-//    } else if (out->texinfo->texture->name[0] == '{') // ericw -- fence textures
-//        {
-//      out->flags |= SURF_DRAWFENCE;
-//    } else if (out->texinfo->flags & TEX_MISSING) // texture is missing from bsp
-//        {
-//      if (out->samples) //lightmapped
-//      {
-//        out->flags |= SURF_NOTEXTURE;
-//      } else // not lightmapped
-//      {
-//        out->flags |= (SURF_NOTEXTURE | SURF_DRAWTILED);
+    //johnfitz -- this section rewritten
+    /*
+     if (!q_strncasecmp(out.texinfo->texture->name, "sky", 3)) // sky surface //also note -- was Q_strncmp, changed to match qbsp
+     {
+     out.flags |= (SURF_DRAWSKY | SURF_DRAWTILED);
+     modPolyForUnlitSurface(&out); //no more subdivision
+     } else if (out.texinfo->texture->name[0] == '*') // warp surface
+     {
+     out.flags |= (SURF_DRAWTURB | SURF_DRAWTILED);
+
+     // detect special liquid types
+     if (!strncmp(out.texinfo->texture->name, "*lava", 5))
+     out.flags |= SURF_DRAWLAVA;
+     else if (!strncmp(out.texinfo->texture->name, "*slime", 6))
+     out.flags |= SURF_DRAWSLIME;
+     else if (!strncmp(out.texinfo->texture->name, "*tele", 5))
+     out.flags |= SURF_DRAWTELE;
+     else
+     out.flags |= SURF_DRAWWATER;
+
+     modPolyForUnlitSurface(&out);
+     //      GL_SubdivideSurface(out);
+     } else if (out.texinfo->texture->name[0] == '{') // ericw -- fence textures
+     {
+     out.flags |= SURF_DRAWFENCE;
+     } else if (out.texinfo->flags & TEX_MISSING) // texture is missing from bsp
+     {
+     if (out.samples) //lightmapped
+     {
+     out.flags |= SURF_NOTEXTURE;
+     } else // not lightmapped
+     {
+     out.flags |= (SURF_NOTEXTURE | SURF_DRAWTILED);
+     */
+
     modPolyForUnlitSurface(&out);
-//      }
-//    }
-//    //johnfitz
+
+    //}
+    //}
     loadmodel->surfaces.push_back(out);
   }
 
@@ -2426,19 +2434,298 @@ void vkglBSP::Model::modPolyForUnlitSurface(MSurface *fa) {
 
   for (i = 0; i < fa->numedges; i++) {
     glm::vec4 vec;
+
     lindex = loadmodel->surfedges.at(fa->firstedge + i);
     if (lindex > 0) {
       MEdge idx = pedges.at(lindex);
-      vec = loadmodel->vertexes.at(idx.v[0]).position;
+      vec = loadmodel->vertexes.at(idx.v[1]).position;
     } else {
       MEdge idx = pedges.at(-lindex);
-      vec = loadmodel->vertexes.at(idx.v[1]).position;
+      vec = loadmodel->vertexes.at(idx.v[0]).position;
     }
 
+//    fa->polys.verts.push_back(ve);
     fa->polys.verts.push_back(vec);
     numverts++;
   }
   fa->polys.numverts = numverts;
 
+}
+
+void vkglBSP::Model::modLoadTextures(Lump *l) {
+  int i, j, pixels, num, maxanim, altmax;
+  MipTex *mt;
+  Texture tx, tx2;
+  Texture *anims[10];
+  Texture *altanims[10];
+  DMipTexLump *m;
+//johnfitz -- more variables
+  char texturename[64];
+  int nummiptex;
+  src_offset_t offset;
+  int mark, fwidth, fheight;
+  char filename[MAX_OSPATH], filename2[MAX_OSPATH], mapname[MAX_OSPATH];
+  byte *data;
+  extern byte *hunk_base;
+//johnfitz
+
+  //johnfitz -- don't return early if no textures; still need to create dummy texture
+  if (!l->filelen) {
+    std::cout << "Mod_LoadTextures: no textures in bsp file" << std::endl;
+    nummiptex = 0;
+//    m = NULL; // avoid bogus compiler warning
+  } else {
+    m = (DMipTexLump*) (mod_base + l->fileofs);
+    nummiptex = m->nummiptex;
+  }
+  //johnfitz
+
+  loadmodel->numtextures = nummiptex + 2; //johnfitz -- need 2 dummy texture chains for missing textures
+
+  for (i = 0; i < nummiptex; i++) {
+    if (m->dataofs[i] == -1)
+      continue;
+    mt = (MipTex*) ((byte*) m + m->dataofs[i]);
+    mt->width = (mt->width);
+    mt->height = (mt->height);
+    for (j = 0; j < MIPLEVELS; j++)
+      mt->offsets[j] = (mt->offsets[j]);
+
+    if ((mt->width & 15) || (mt->height & 15)) {
+      snprintf(errorBuff, 255, "Texture %s is not 16 aligned", mt->name);
+      throw std::runtime_error(errorBuff);
+    }
+
+    pixels = mt->width * mt->height / 64 * 85;
+
+    memcpy(tx.name, mt->name, sizeof(tx.name));
+    tx.width = mt->width;
+    tx.height = mt->height;
+    for (j = 0; j < MIPLEVELS; j++)
+      tx.offsets[j] = mt->offsets[j] + sizeof(Texture) - sizeof(MipTex);
+    // the pixels immediately follow the structures
+
+    // ericw -- check for pixels extending past the end of the lump.
+    // appears in the wild; e.g. jam2_tronyn.bsp (func_mapjam2),
+    // kellbase1.bsp (quoth), and can lead to a segfault if we read past
+    // the end of the .bsp file buffer
+    if (((byte*) (mt + 1) + pixels) > (mod_base + l->fileofs + l->filelen)) {
+      std::cout << "Texture " << mt->name << " extends past end of lump"
+          << std::endl;
+      pixels = q_max(0,
+          (mod_base + l->fileofs + l->filelen) - (byte* ) (mt + 1));
+    }
+    memcpy(&tx + 1, mt + 1, pixels);
+
+    tx.update_warp = false; //johnfitz
+    tx.warpimage = NULL; //johnfitz
+    tx.fullbright = NULL; //johnfitz
+
+    //johnfitz -- lots of changes
+//    if (!isDedicated) //no texture uploading for dedicated server
+//    {
+//      if (!q_strncasecmp(tx->name,"sky",3)) //sky texture //also note -- was Q_strncmp, changed to match qbsp
+//        Sky_LoadTexture (tx);
+//      else if (tx->name[0] == '*') //warping texture
+//      {
+//        //external textures -- first look in "textures/mapname/" then look in "textures/"
+//        mark = Hunk_LowMark();
+//        COM_StripExtension (loadmodel->name + 5, mapname, sizeof(mapname));
+//        q_snprintf (filename, sizeof(filename), "textures/%s/#%s", mapname, tx->name+1); //this also replaces the '*' with a '#'
+//        data = Image_LoadImage (filename, &fwidth, &fheight);
+//        if (!data)
+//        {
+//          q_snprintf (filename, sizeof(filename), "textures/#%s", tx->name+1);
+//          data = Image_LoadImage (filename, &fwidth, &fheight);
+//        }
+//
+//        //now load whatever we found
+//        if (data) //load external image
+//        {
+//          q_strlcpy (texturename, filename, sizeof(texturename));
+//          tx->gltexture = TexMgr_LoadImage (loadmodel, texturename, fwidth, fheight,
+//            SRC_RGBA, data, filename, 0, TEXPREF_NONE);
+//        }
+//        else //use the texture from the bsp file
+//        {
+//          q_snprintf (texturename, sizeof(texturename), "%s:%s", loadmodel->name, tx->name);
+//          offset = (src_offset_t)(mt+1) - (src_offset_t)mod_base;
+//          tx->gltexture = TexMgr_LoadImage (loadmodel, texturename, tx->width, tx->height,
+//            SRC_INDEXED, (byte *)(tx+1), loadmodel->name, offset, TEXPREF_NONE);
+//        }
+//
+//        //now create the warpimage, using dummy data from the hunk to create the initial image
+//        Hunk_Alloc (WARPIMAGESIZE*WARPIMAGESIZE*4); //make sure hunk is big enough so we don't reach an illegal address
+//        Hunk_FreeToLowMark (mark);
+//        q_snprintf (texturename, sizeof(texturename), "%s_warp", texturename);
+//        tx->warpimage = TexMgr_LoadImage (loadmodel, texturename, WARPIMAGESIZE,
+//          WARPIMAGESIZE, SRC_RGBA, hunk_base, "", (src_offset_t)hunk_base, TEXPREF_NOPICMIP | TEXPREF_WARPIMAGE);
+//        tx->update_warp = true;
+//      }
+//      else //regular texture
+//      {
+//        // ericw -- fence textures
+//        int extraflags;
+//
+//        extraflags = 0;
+//        if (tx.name[0] == '{')
+//          extraflags |= TEXPREF_ALPHA;
+//        // ericw
+//
+//        //external textures -- first look in "textures/mapname/" then look in "textures/"
+//        mark = Hunk_LowMark ();
+//        comStripExtension (loadmodel->name + 5, mapname, sizeof(mapname));
+//        snprintf (filename, sizeof(filename), "textures/%s/%s", mapname, tx.name);
+//        data = Image_LoadImage (filename, &fwidth, &fheight);
+//        if (!data)
+//        {
+//          q_snprintf (filename, sizeof(filename), "textures/%s", tx->name);
+//          data = Image_LoadImage (filename, &fwidth, &fheight);
+//        }
+//
+//        //now load whatever we found
+//        if (data) //load external image
+//        {
+//          tx->gltexture = TexMgr_LoadImage (loadmodel, filename, fwidth, fheight,
+//            SRC_RGBA, data, filename, 0, TEXPREF_MIPMAP | extraflags );
+//
+//          //now try to load glow/luma image from the same place
+//          Hunk_FreeToLowMark (mark);
+//          q_snprintf (filename2, sizeof(filename2), "%s_glow", filename);
+//          data = Image_LoadImage (filename2, &fwidth, &fheight);
+//          if (!data)
+//          {
+//            q_snprintf (filename2, sizeof(filename2), "%s_luma", filename);
+//            data = Image_LoadImage (filename2, &fwidth, &fheight);
+//          }
+//
+//          if (data)
+//            tx->fullbright = TexMgr_LoadImage (loadmodel, filename2, fwidth, fheight,
+//              SRC_RGBA, data, filename, 0, TEXPREF_MIPMAP | extraflags );
+//        }
+//        else //use the texture from the bsp file
+//        {
+//          q_snprintf (texturename, sizeof(texturename), "%s:%s", loadmodel->name, tx->name);
+//          offset = (src_offset_t)(mt+1) - (src_offset_t)mod_base;
+//          if (Mod_CheckFullbrights ((byte *)(tx+1), pixels))
+//          {
+//            tx->gltexture = TexMgr_LoadImage (loadmodel, texturename, tx->width, tx->height,
+//              SRC_INDEXED, (byte *)(tx+1), loadmodel->name, offset, TEXPREF_MIPMAP | TEXPREF_NOBRIGHT | extraflags);
+//            q_snprintf (texturename, sizeof(texturename), "%s:%s_glow", loadmodel->name, tx->name);
+//            tx->fullbright = TexMgr_LoadImage (loadmodel, texturename, tx->width, tx->height,
+//              SRC_INDEXED, (byte *)(tx+1), loadmodel->name, offset, TEXPREF_MIPMAP | TEXPREF_FULLBRIGHT | extraflags);
+//          }
+//          else
+//          {
+//            tx->gltexture = TexMgr_LoadImage (loadmodel, texturename, tx->width, tx->height,
+//              SRC_INDEXED, (byte *)(tx+1), loadmodel->name, offset, TEXPREF_MIPMAP | extraflags);
+//          }
+//        }
+//        Hunk_FreeToLowMark (mark);
+//      }
+//    }
+    //johnfitz
+
+    loadmodel->textures.push_back(tx);
+  }
+
+  //johnfitz -- last 2 slots in array should be filled with dummy textures
+//  loadmodel->textures[loadmodel->numtextures-2] = r_notexture_mip; //for lightmapped surfs
+//  loadmodel->textures[loadmodel->numtextures-1] = r_notexture_mip2; //for SURF_DRAWTILED surfs
+//
+////
+//// sequence the animations
+////
+//  for (i=0 ; i<nummiptex ; i++)
+//  {
+//    tx = loadmodel->textures[i];
+//    if (!tx || tx->name[0] != '+')
+//      continue;
+//    if (tx->anim_next)
+//      continue; // allready sequenced
+//
+//  // find the number of frames in the animation
+//    memset (anims, 0, sizeof(anims));
+//    memset (altanims, 0, sizeof(altanims));
+//
+//    maxanim = tx->name[1];
+//    altmax = 0;
+//    if (maxanim >= 'a' && maxanim <= 'z')
+//      maxanim -= 'a' - 'A';
+//    if (maxanim >= '0' && maxanim <= '9')
+//    {
+//      maxanim -= '0';
+//      altmax = 0;
+//      anims[maxanim] = tx;
+//      maxanim++;
+//    }
+//    else if (maxanim >= 'A' && maxanim <= 'J')
+//    {
+//      altmax = maxanim - 'A';
+//      maxanim = 0;
+//      altanims[altmax] = tx;
+//      altmax++;
+//    }
+//    else
+//      Sys_Error ("Bad animating texture %s", tx->name);
+//
+//    for (j=i+1 ; j<nummiptex ; j++)
+//    {
+//      tx2 = loadmodel->textures[j];
+//      if (!tx2 || tx2->name[0] != '+')
+//        continue;
+//      if (strcmp (tx2->name+2, tx->name+2))
+//        continue;
+//
+//      num = tx2->name[1];
+//      if (num >= 'a' && num <= 'z')
+//        num -= 'a' - 'A';
+//      if (num >= '0' && num <= '9')
+//      {
+//        num -= '0';
+//        anims[num] = tx2;
+//        if (num+1 > maxanim)
+//          maxanim = num + 1;
+//      }
+//      else if (num >= 'A' && num <= 'J')
+//      {
+//        num = num - 'A';
+//        altanims[num] = tx2;
+//        if (num+1 > altmax)
+//          altmax = num+1;
+//      }
+//      else
+//        Sys_Error ("Bad animating texture %s", tx->name);
+//    }
+//
+//#define ANIM_CYCLE  2
+//  // link them all together
+//    for (j=0 ; j<maxanim ; j++)
+//    {
+//      tx2 = anims[j];
+//      if (!tx2)
+//        Sys_Error ("Missing frame %i of %s",j, tx->name);
+//      tx2->anim_total = maxanim * ANIM_CYCLE;
+//      tx2->anim_min = j * ANIM_CYCLE;
+//      tx2->anim_max = (j+1) * ANIM_CYCLE;
+//      tx2->anim_next = anims[ (j+1)%maxanim ];
+//      if (altmax)
+//        tx2->alternate_anims = altanims[0];
+//    }
+//    for (j=0 ; j<altmax ; j++)
+//    {
+//      tx2 = altanims[j];
+//      if (!tx2)
+//        Sys_Error ("Missing frame %i of %s",j, tx->name);
+//      tx2->anim_total = altmax * ANIM_CYCLE;
+//      tx2->anim_min = j * ANIM_CYCLE;
+//      tx2->anim_max = (j+1) * ANIM_CYCLE;
+//      tx2->anim_next = altanims[ (j+1)%altmax ];
+//      if (maxanim)
+//        tx2->alternate_anims = anims[0];
+//    }
+//  }
+
+  std::cout << "Done loading textures " << std::endl;
 }
 

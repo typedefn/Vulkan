@@ -607,7 +607,7 @@ public:
     uniformData.viewInverse = glm::inverse(camera.matrices.view);
 //    uniformData.lightPos = glm::vec4((cos(glm::radians(timer * 360.0f)) * 5.0f) + camera.position.x, (-50.0f + sin(glm::radians(timer * 360.0f)) * 5.0f) + camera.position.y, (25.0f + sin(glm::radians(timer * 360.0f)) * 5.0f) + camera.position.z, 0.0f);
 
-    uniformData.lightPos = glm::vec4(camera.position.x, camera.position.y, camera.position.z, 1.0f);
+    uniformData.lightPos = glm::vec4(camera.position.x, camera.position.y, camera.position.z, 0.0f);
 //    uniformData.lightPos = glm::vec4(-837, 90, 529, 0.0f);
     // Pass the vertex size to the shader for unpacking vertices
     uniformData.vertexSize = sizeof(vkglBSP::MVertex);

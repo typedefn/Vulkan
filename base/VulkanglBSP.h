@@ -29,7 +29,7 @@
 #endif
 
 #define DotProduct(x,y) (x[0]*y[0]+x[1]*y[1]+x[2]*y[2])
-
+#define q_max(a, b) (((a) > (b)) ? (a) : (b))
 
 #define MAX_QPATH 64    // max length of a quake game pathname
 #define MAX_MAP_HULLS   4
@@ -87,6 +87,10 @@
 #define SURF_DRAWSLIME    0x800
 #define SURF_DRAWTELE   0x1000
 #define SURF_DRAWWATER    0x2000
+
+#define TEX_SPECIAL   1   // sky or slime, no lightmap or 256 subdivision
+#define TEX_MISSING   2   // johnfitz -- this texinfo does not have a texture
+
 typedef unsigned char byte;
 typedef uintptr_t src_offset_t;
 typedef float soa_aabb_t[2 * 3 * 8]; // 8 AABB's in SoA form
@@ -126,34 +130,36 @@ struct DLEdge {
   unsigned int v[2];   // vertex numbers
 };
 
-struct DSFace
-{
-  short   planenum;
-  short   side;
+struct DSFace {
+  short planenum;
+  short side;
 
-  int     firstedge;    // we must support > 64k edges
-  short   numedges;
-  short   texinfo;
-
-// lighting info
-  byte    styles[MAXLIGHTMAPS];
-  int     lightofs;   // start of [numstyles*surfsize] samples
-};
-
-struct DLFace
-{
-  int     planenum;
-  int     side;
-
-  int     firstedge;    // we must support > 64k edges
-  int     numedges;
-  int     texinfo;
+  int firstedge;    // we must support > 64k edges
+  short numedges;
+  short texinfo;
 
 // lighting info
-  byte    styles[MAXLIGHTMAPS];
-  int     lightofs;   // start of [numstyles*surfsize] samples
+  byte styles[MAXLIGHTMAPS];
+  int lightofs;   // start of [numstyles*surfsize] samples
 };
 
+struct DLFace {
+  int planenum;
+  int side;
+
+  int firstedge;    // we must support > 64k edges
+  int numedges;
+  int texinfo;
+
+// lighting info
+  byte styles[MAXLIGHTMAPS];
+  int lightofs;   // start of [numstyles*surfsize] samples
+};
+
+struct DMipTexLump {
+  int nummiptex;
+  int dataofs[4];   // [nummiptex]
+};
 
 struct DVertex {
   float point[3];
@@ -255,6 +261,13 @@ struct MTexInfo {
   float vecs[2][4];
   Texture *texture;
   int flags;
+};
+
+#define MIPLEVELS 4
+struct MipTex {
+  char name[16];
+  unsigned width, height;
+  unsigned offsets[MIPLEVELS];   // four mip maps stored
 };
 
 struct Hull {
@@ -427,7 +440,7 @@ struct QModel {
   Hull hulls[MAX_MAP_HULLS];
 
   int numtextures;
-  Texture **textures;
+  std::vector<Texture> textures;
 
   byte *visdata;
   byte *lightdata;
@@ -537,8 +550,20 @@ struct DPackHeader {
 
 /*
  glTF texture loading class
- */
+ // */
 struct Texture {
+  char name[16];
+  struct gltexture_s *gltexture; //johnfitz -- pointer to gltexture
+  struct gltexture_s *fullbright; //johnfitz -- fullbright mask texture
+  struct gltexture_s *warpimage; //johnfitz -- for water animation
+  bool update_warp; //johnfitz -- update warp this frame
+  struct msurface_s *texturechains[2];  // for texture chains
+  int anim_total;       // total tenths in sequence ( 0 = no)
+  int anim_min, anim_max;   // time for this frame min <=time< max
+  struct texture_s *anim_next;   // in the animation sequence
+  struct texture_s *alternate_anims; // bmodels in frmae 1 use these
+  unsigned offsets[MIPLEVELS];   // four mip maps stored
+
   vks::VulkanDevice *device = nullptr;
   VkImage image;
   VkImageLayout imageLayout;
@@ -765,8 +790,8 @@ private:
   byte *mod_base;
   char errorBuff[256];
   Pack *pak0;
-std::vector<MVertex> backupVertex;
-std::vector<uint32_t> backupIndex;
+  std::vector<MVertex> backupVertex;
+  std::vector<uint32_t> backupIndex;
   QModel mod;
   VkDescriptorSet descriptorSet;
 
@@ -813,7 +838,8 @@ public:
       VkQueue transferQueue, uint32_t fileLoadingFlags =
           vkglBSP::FileLoadingFlags::None, float scale = 1.0f);
   void bindBuffers(VkCommandBuffer commandBuffer);
-  void draw(const VkCommandBuffer commandBuffer, VkPipeline pipeline, VkPipelineLayout pipelineLayout);
+  void draw(const VkCommandBuffer commandBuffer, VkPipeline pipeline,
+      VkPipelineLayout pipelineLayout);
   void getNodeDimensions(Node *node, glm::vec3 &min, glm::vec3 &max);
   void getSceneDimensions();
   void updateAnimation(uint32_t index, float time);
@@ -863,6 +889,54 @@ public:
   void modLoadEdges(Lump *l);
   void modLoadSurfedges(Lump *l);
   void modLoadFaces(Lump *l);
-  void modPolyForUnlitSurface (MSurface *fa);
+  void modPolyForUnlitSurface(MSurface *fa);
+  void modLoadTextures (Lump *l);
+
+  static inline int q_tolower(int c) {
+    return ((q_isupper(c)) ? (c | ('a' - 'A')) : c);
+  }
+
+  static inline int q_isupper(int c) {
+    return (c >= 'A' && c <= 'Z');
+  }
+
+  int q_strncasecmp(const char *s1, const char *s2, size_t n) {
+    const char *p1 = s1;
+    const char *p2 = s2;
+    char c1, c2;
+
+    if (p1 == p2 || n == 0)
+      return 0;
+
+    do {
+      c1 = q_tolower(*p1++);
+      c2 = q_tolower(*p2++);
+      if (c1 == '\0' || c1 != c2)
+        break;
+    } while (--n > 0);
+
+    return (int) (c1 - c2);
+  }
+
+  void comStripExtension(const char *in, char *out, size_t outsize) {
+    int length;
+
+    if (!*in) {
+      *out = '\0';
+      return;
+    }
+    if (in != out) /* copy when not in-place editing */
+      q_strlcpy(out, in, outsize);
+    length = (int) strlen(out) - 1;
+    while (length > 0 && out[length] != '.') {
+      --length;
+      if (out[length] == '/' || out[length] == '\\')
+        return; /* no extension */
+    }
+    if (length > 0)
+      out[length] = '\0';
+  }
+
 };
+
 }
