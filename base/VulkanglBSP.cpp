@@ -1989,10 +1989,10 @@ void vkglBSP::Model::modLoadBrushModel(QModel *mod, void *buffer) {
   modLoadVertexes(&header->lumps[LUMP_VERTEXES]);
   modLoadEdges(&header->lumps[LUMP_EDGES]);
   modLoadSurfedges(&header->lumps[LUMP_SURFEDGES]);
-//  modLoadTextures(&header->lumps[LUMP_TEXTURES]);
+  modLoadTextures(&header->lumps[LUMP_TEXTURES]);
 //  Mod_LoadLighting(&header->lumps[LUMP_LIGHTING]);
 //  Mod_LoadPlanes(&header->lumps[LUMP_PLANES]);
-//  Mod_LoadTexinfo(&header->lumps[LUMP_TEXINFO]);
+  modLoadTexInfo(&header->lumps[LUMP_TEXINFO]);
   modLoadFaces(&header->lumps[LUMP_FACES]);
 //  Mod_LoadMarksurfaces(&header->lumps[LUMP_MARKSURFACES], bsp2);
 //
@@ -2152,9 +2152,13 @@ void vkglBSP::Model::init() {
 
     baseIndex = s.firstedge;
 
+    std::cout << "baseIndex = " << baseIndex << std::endl;
+
     const int numverts = p->verts.size();
     const int vertexCount = p->numverts - 2;
 
+    std::cout << "numVerts = " << numverts << std::endl;
+    std::cout << "vertexCount = " << vertexCount << std::endl;
     for (const auto &v : p->verts) {
       MVertex mv;
       mv.position = v;
@@ -2340,6 +2344,8 @@ void vkglBSP::Model::modLoadFaces(Lump *l) {
 
   loadmodel->numsurfaces = count;
 
+  MTexInfo *mti = loadmodel->texinfo.data();
+
   for (surfnum = 0; surfnum < count; surfnum++) {
     MSurface out;
     out.firstedge = ins->firstedge;
@@ -2347,12 +2353,7 @@ void vkglBSP::Model::modLoadFaces(Lump *l) {
     planenum = ins->planenum;
     side = ins->side;
     texinfon = ins->texinfo;
-
-    for (i = 0; i < MAXLIGHTMAPS; i++)
-      out.styles[i] = ins->styles[i];
-
     lofs = ins->lightofs;
-    texinfon = ins->texinfo;
 
     ins++;
 
@@ -2363,7 +2364,9 @@ void vkglBSP::Model::modLoadFaces(Lump *l) {
 
 //    out.plane = loadmodel->planes + planenum;
 
-//    out.texinfo = loadmodel->texinfo + texinfon;
+    out.texinfo = mti + texinfon;
+
+    std::cout << "modLoadFaces: " << out.texinfo->texture.name << std::endl;
 
 //    CalcSurfaceExtents(out);
 
@@ -2374,47 +2377,182 @@ void vkglBSP::Model::modLoadFaces(Lump *l) {
 //      out.samples = loadmodel->lightdata + (lofs * 3); //johnfitz -- lit support via lordhavoc (was "+ i")
 
     //johnfitz -- this section rewritten
-    /*
-     if (!q_strncasecmp(out.texinfo->texture->name, "sky", 3)) // sky surface //also note -- was Q_strncmp, changed to match qbsp
-     {
-     out.flags |= (SURF_DRAWSKY | SURF_DRAWTILED);
-     modPolyForUnlitSurface(&out); //no more subdivision
-     } else if (out.texinfo->texture->name[0] == '*') // warp surface
-     {
-     out.flags |= (SURF_DRAWTURB | SURF_DRAWTILED);
 
-     // detect special liquid types
-     if (!strncmp(out.texinfo->texture->name, "*lava", 5))
-     out.flags |= SURF_DRAWLAVA;
-     else if (!strncmp(out.texinfo->texture->name, "*slime", 6))
-     out.flags |= SURF_DRAWSLIME;
-     else if (!strncmp(out.texinfo->texture->name, "*tele", 5))
-     out.flags |= SURF_DRAWTELE;
-     else
-     out.flags |= SURF_DRAWWATER;
-
-     modPolyForUnlitSurface(&out);
-     //      GL_SubdivideSurface(out);
-     } else if (out.texinfo->texture->name[0] == '{') // ericw -- fence textures
-     {
-     out.flags |= SURF_DRAWFENCE;
-     } else if (out.texinfo->flags & TEX_MISSING) // texture is missing from bsp
-     {
-     if (out.samples) //lightmapped
-     {
-     out.flags |= SURF_NOTEXTURE;
-     } else // not lightmapped
-     {
-     out.flags |= (SURF_NOTEXTURE | SURF_DRAWTILED);
-     */
-
-    modPolyForUnlitSurface(&out);
-
-    //}
-    //}
-    loadmodel->surfaces.push_back(out);
+//    if (!q_strncasecmp(out.texinfo->texture.name, "sky", 3)) // sky surface //also note -- was Q_strncmp, changed to match qbsp
+//        {
+//      out.flags |= (SURF_DRAWSKY | SURF_DRAWTILED);
+//      modPolyForUnlitSurface(&out); //no more subdivision
+//
+//    } else if (out.texinfo->texture.name[0] == '*') // warp surface
+//        {
+//      out.flags |= (SURF_DRAWTURB | SURF_DRAWTILED);
+//
+//      // detect special liquid types
+//      if (!strncmp(out.texinfo->texture.name, "*lava", 5))
+//        out.flags |= SURF_DRAWLAVA;
+//      else if (!strncmp(out.texinfo->texture.name, "*slime", 6))
+//        out.flags |= SURF_DRAWSLIME;
+//      else if (!strncmp(out.texinfo->texture.name, "*tele", 5))
+//        out.flags |= SURF_DRAWTELE;
+//      else
+//        out.flags |= SURF_DRAWWATER;
+////
+//      modPolyForUnlitSurface(&out);
+//      glSubdivideSurface(&out);
+//
+//    } else if (out.texinfo->texture.name[0] == '{') // ericw -- fence textures
+//        {
+//      out.flags |= SURF_DRAWFENCE;
+//    } else if (out.texinfo->flags & TEX_MISSING) // texture is missing from bsp
+//    {
+//      if (out.samples) //lightmapped
+//      {
+//        out.flags |= SURF_NOTEXTURE;
+//      } else // not lightmapped
+//      {
+//        out.flags |= (SURF_NOTEXTURE | SURF_DRAWTILED);
+//        modPolyForUnlitSurface(&out);
+//      }
+//    }
+    if (strncmp(out.texinfo->texture.name, "trigger", 7)) {
+      modPolyForUnlitSurface(&out);
+      loadmodel->surfaces.push_back(out);
+    }
   }
 
+}
+
+void vkglBSP::Model::boundPoly(int numverts, std::vector<glm::vec3> &verts,
+    glm::vec3 & mins, glm::vec3 &maxs) {
+  int i, j;
+  float *v;
+
+  mins[0] = mins[1] = mins[2] = FLT_MAX;
+  maxs[0] = maxs[1] = maxs[2] = -FLT_MAX;
+  v = &verts[0].x;
+  for (i = 0; i < numverts; i++)
+    for (j = 0; j < 3; j++, v++) {
+      if (*v < mins[j])
+        mins[j] = *v;
+      if (*v > maxs[j])
+        maxs[j] = *v;
+    }
+}
+
+void vkglBSP::Model::subdividePolygon(int numverts,
+    std::vector<glm::vec3> &verts) {
+  int i, j, k;
+  glm::vec3 mins, maxs;
+  float m;
+  float *v;
+  std::vector<glm::vec3> front, back;
+  int f, b;
+  std::vector<glm::vec3> dist;
+  float frac;
+  GlPoly *poly;
+  float s, t;
+
+  if (numverts > 60) {
+    snprintf(errorBuff, 255, "numverts = %i", numverts);
+    throw std::runtime_error(errorBuff);
+  }
+  dist.resize(numverts);
+  front.resize(64);
+  back.resize(64);
+
+
+
+
+  boundPoly(numverts, verts, mins, maxs);
+
+  for (i = 0; i < 3; i++) {
+    m = (mins[i] + maxs[i]) * 0.5;
+    m = 128 * floor(m / 128 + 0.5);
+    if (maxs[i] - m < 8)
+      continue;
+    if (m - mins[i] < 8)
+      continue;
+
+    // cut it
+    v = &verts[i].x;
+
+    float * dist2 = &dist[0].x;
+
+    for (j = 0; j < numverts; j++, v+= 3)
+      dist2[j] = *v - m;
+
+    // wrap cases
+    dist2[j] = dist2[0];
+
+    verts.at(i) = glm::vec3(*(v+1), *(v+2), *(v+3));
+
+    f = b = 0;
+
+    std::cout << "2 " << std::endl;
+
+    for (j = 0; j < numverts; j++, v+= 3) {
+      if (dist2[j] >= 0) {
+        front[f] =  glm::vec3(*(v+1), *(v+2), *(v+3));
+        f++;
+      }
+      if (dist2[j] <= 0) {
+        back[b] =  glm::vec3(*(v+1), *(v+2), *(v+3));
+        b++;
+      }
+      if (dist2[j] == 0 || dist2[j + 1] == 0)
+        continue;
+      if ((dist2[j] > 0) != (dist2[j + 1] > 0)) {
+        // clip point
+        frac = dist2[j] / (dist2[j] - dist2[j + 1]);
+
+        front[f].x = back[b].x = v[0] + frac * (v[3 + 0] - v[0]);
+        front[f].y = back[b].y = v[1] + frac * (v[3 + 1] - v[1]);
+        front[f].z = back[b].z = v[2] + frac * (v[3 + 2] - v[2]);
+
+        f++;
+        b++;
+      }
+    }
+    std::cout << "3 " << std::endl;
+    subdividePolygon(f, front);
+    subdividePolygon(b, back);
+    return;
+  }
+
+  std::cout << "4 " << std::endl;
+
+  GlPoly poly2;
+  poly2.next = warpface->polys.next;
+  poly2.numverts = numverts;
+
+
+  for (i = 0; i < numverts; i++) {
+    std::cout << verts.size() << " - vert index = " << i << " out of " << numverts << std::endl;
+
+    poly2.verts.push_back(glm::vec4(verts[i].x, verts[i].y, verts[i].z, 0));
+    s = DotProduct(verts[i], warpface->texinfo->vecs[0]);
+    t = DotProduct(verts[i], warpface->texinfo->vecs[1]);
+//    poly2.verts[i][3] = s;
+//    poly2.verts[i][4] = t;
+  }
+  std::cout << "5 " << std::endl;
+  warpface->polys.next = &poly2;
+  std::cout << "6 " << std::endl;
+  polygons.push_back(poly2);
+}
+
+void vkglBSP::Model::glSubdivideSurface(MSurface *fa) {
+  std::vector<glm::vec3> verts;
+  int i;
+
+  warpface = fa;
+
+  //the first poly in the chain is the undivided poly for newwater rendering.
+  //grab the verts from that.
+  for (i = 0; i < fa->polys.numverts; i++)
+    verts.push_back(fa->polys.verts[i]);
+
+  subdividePolygon(fa->polys.numverts, verts);
 }
 
 void vkglBSP::Model::modPolyForUnlitSurface(MSurface *fa) {
@@ -2444,7 +2582,6 @@ void vkglBSP::Model::modPolyForUnlitSurface(MSurface *fa) {
       vec = loadmodel->vertexes.at(idx.v[0]).position;
     }
 
-//    fa->polys.verts.push_back(ve);
     fa->polys.verts.push_back(vec);
     numverts++;
   }
@@ -2455,9 +2592,9 @@ void vkglBSP::Model::modPolyForUnlitSurface(MSurface *fa) {
 void vkglBSP::Model::modLoadTextures(Lump *l) {
   int i, j, pixels, num, maxanim, altmax;
   MipTex *mt;
-  Texture tx, tx2;
-  Texture *anims[10];
-  Texture *altanims[10];
+  QTexture tx2;
+  QTexture *anims[10];
+  QTexture *altanims[10];
   DMipTexLump *m;
 //johnfitz -- more variables
   char texturename[64];
@@ -2471,9 +2608,8 @@ void vkglBSP::Model::modLoadTextures(Lump *l) {
 
   //johnfitz -- don't return early if no textures; still need to create dummy texture
   if (!l->filelen) {
-    std::cout << "Mod_LoadTextures: no textures in bsp file" << std::endl;
+    std::cout << "modLoadTextures: no textures in bsp file" << std::endl;
     nummiptex = 0;
-//    m = NULL; // avoid bogus compiler warning
   } else {
     m = (DMipTexLump*) (mod_base + l->fileofs);
     nummiptex = m->nummiptex;
@@ -2483,13 +2619,12 @@ void vkglBSP::Model::modLoadTextures(Lump *l) {
   loadmodel->numtextures = nummiptex + 2; //johnfitz -- need 2 dummy texture chains for missing textures
 
   for (i = 0; i < nummiptex; i++) {
+    QTexture tx;
+
     if (m->dataofs[i] == -1)
       continue;
+
     mt = (MipTex*) ((byte*) m + m->dataofs[i]);
-    mt->width = (mt->width);
-    mt->height = (mt->height);
-    for (j = 0; j < MIPLEVELS; j++)
-      mt->offsets[j] = (mt->offsets[j]);
 
     if ((mt->width & 15) || (mt->height & 15)) {
       snprintf(errorBuff, 255, "Texture %s is not 16 aligned", mt->name);
@@ -2501,8 +2636,10 @@ void vkglBSP::Model::modLoadTextures(Lump *l) {
     memcpy(tx.name, mt->name, sizeof(tx.name));
     tx.width = mt->width;
     tx.height = mt->height;
+    std::cout << "Loading texture.." << tx.name << std::endl;
+
     for (j = 0; j < MIPLEVELS; j++)
-      tx.offsets[j] = mt->offsets[j] + sizeof(Texture) - sizeof(MipTex);
+      tx.offsets[j] = mt->offsets[j] + sizeof(QTexture) - sizeof(MipTex);
     // the pixels immediately follow the structures
 
     // ericw -- check for pixels extending past the end of the lump.
@@ -2515,11 +2652,13 @@ void vkglBSP::Model::modLoadTextures(Lump *l) {
       pixels = q_max(0,
           (mod_base + l->fileofs + l->filelen) - (byte* ) (mt + 1));
     }
-    memcpy(&tx + 1, mt + 1, pixels);
+
+//    QTexture * qt = &tx;
+//    memcpy(qt + 1, mt + 1, pixels);
 
     tx.update_warp = false; //johnfitz
-    tx.warpimage = NULL; //johnfitz
-    tx.fullbright = NULL; //johnfitz
+    tx.warpimage = nullptr; //johnfitz
+    tx.fullbright = nullptr; //johnfitz
 
     //johnfitz -- lots of changes
 //    if (!isDedicated) //no texture uploading for dedicated server
@@ -2565,11 +2704,11 @@ void vkglBSP::Model::modLoadTextures(Lump *l) {
 //      else //regular texture
 //      {
 //        // ericw -- fence textures
-//        int extraflags;
+    int extraflags;
 //
 //        extraflags = 0;
-//        if (tx.name[0] == '{')
-//          extraflags |= TEXPREF_ALPHA;
+    if (tx.name[0] == '{')
+      extraflags |= TEXPREF_ALPHA;
 //        // ericw
 //
 //        //external textures -- first look in "textures/mapname/" then look in "textures/"
@@ -2727,5 +2866,57 @@ void vkglBSP::Model::modLoadTextures(Lump *l) {
 //  }
 
   std::cout << "Done loading textures " << std::endl;
+}
+
+void vkglBSP::Model::modLoadTexInfo(Lump *l) {
+  TexInfo *in;
+  int i, j, count, miptex;
+  int missing = 0; //johnfitz
+
+  in = (TexInfo*) (mod_base + l->fileofs);
+  if (l->filelen % sizeof(*in)) {
+    snprintf(errorBuff, 255, "MOD_LoadBmodel: funny lump size in %s",
+        loadmodel->name);
+    throw std::runtime_error(errorBuff);
+  }
+
+  count = l->filelen / sizeof(*in);
+
+  loadmodel->numtexinfo = count;
+
+  for (i = 0; i < count; i++, in++) {
+    MTexInfo out;
+    for (j = 0; j < 4; j++) {
+      out.vecs[0][j] = (in->vecs[0][j]);
+      out.vecs[1][j] = (in->vecs[1][j]);
+    }
+
+    miptex = (in->miptex);
+    out.flags = (in->flags);
+
+    //johnfitz -- rewrote this section
+    if (miptex >= loadmodel->numtextures - 1) {
+      if (out.flags & TEX_SPECIAL)
+        out.texture = loadmodel->textures[loadmodel->numtextures - 1];
+      else
+        out.texture = loadmodel->textures[loadmodel->numtextures - 2];
+      out.flags |= TEX_MISSING;
+      missing++;
+    } else {
+      out.texture = loadmodel->textures[miptex];
+    }
+    //johnfitz
+
+    loadmodel->texinfo.push_back(out);
+
+  }
+
+  //johnfitz: report missing textures
+  if (missing && loadmodel->numtextures > 1) {
+    std::cout << "Mod_LoadTexinfo: " << missing
+        << " texture(s) missing from BSP file\n" << std::endl;
+  }
+
+  //johnfitz
 }
 

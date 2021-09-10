@@ -29,6 +29,11 @@
 #endif
 
 #define DotProduct(x,y) (x[0]*y[0]+x[1]*y[1]+x[2]*y[2])
+#define DotProduct2(x,y) (x[0]*y[0]+x[1]*y[1])
+#define DoublePrecisionDotProduct(x,y) ((double)x[0]*y[0]+(double)x[1]*y[1]+(double)x[2]*y[2])
+#define VectorSubtract(a,b,c) {c[0]=a[0]-b[0];c[1]=a[1]-b[1];c[2]=a[2]-b[2];}
+#define VectorAdd(a,b,c) {c[0]=a[0]+b[0];c[1]=a[1]+b[1];c[2]=a[2]+b[2];}
+#define VectorCopy(a,b) {b[0]=a[0];b[1]=a[1];b[2]=a[2];}
 #define q_max(a, b) (((a) > (b)) ? (a) : (b))
 
 #define MAX_QPATH 64    // max length of a quake game pathname
@@ -88,6 +93,22 @@
 #define SURF_DRAWTELE   0x1000
 #define SURF_DRAWWATER    0x2000
 
+#define TEXPREF_NONE      0x0000
+#define TEXPREF_MIPMAP      0x0001  // generate mipmaps
+// TEXPREF_NEAREST and TEXPREF_LINEAR aren't supposed to be ORed with TEX_MIPMAP
+#define TEXPREF_LINEAR      0x0002  // force linear
+#define TEXPREF_NEAREST     0x0004  // force nearest
+#define TEXPREF_ALPHA     0x0008  // allow alpha
+#define TEXPREF_PAD     0x0010  // allow padding
+#define TEXPREF_PERSIST     0x0020  // never free
+#define TEXPREF_OVERWRITE   0x0040  // overwrite existing same-name texture
+#define TEXPREF_NOPICMIP    0x0080  // always load full-sized
+#define TEXPREF_FULLBRIGHT    0x0100  // use fullbright mask palette
+#define TEXPREF_NOBRIGHT    0x0200  // use nobright mask palette
+#define TEXPREF_CONCHARS    0x0400  // use conchars palette
+#define TEXPREF_WARPIMAGE   0x0800  // resize this texture when warpimagesize changes
+
+
 #define TEX_SPECIAL   1   // sky or slime, no lightmap or 256 subdivision
 #define TEX_MISSING   2   // johnfitz -- this texinfo does not have a texture
 
@@ -119,6 +140,15 @@ extern VkMemoryPropertyFlags memoryPropertyFlags;
 extern uint32_t descriptorBindingFlags;
 
 struct Node;
+struct QTexture;
+struct MTexInfo;
+
+struct TexInfo
+{
+  float   vecs[2][4];   // [s/t][xyz offset]
+  int     miptex;
+  int     flags;
+};
 
 // note that edge 0 is never used, because negative edge nums are used for
 // counterclockwise use of the edge in a face
@@ -257,13 +287,8 @@ struct EFrag {
   struct entity_s *entity;
 };
 
-struct MTexInfo {
-  float vecs[2][4];
-  Texture *texture;
-  int flags;
-};
-
 #define MIPLEVELS 4
+
 struct MipTex {
   char name[16];
   unsigned width, height;
@@ -280,11 +305,12 @@ struct Hull {
 };
 
 struct GlPoly {
-  struct glpoly_s *next;
+  struct GlPoly *next;
   int numverts;
 //  float verts[4][VERTEXSIZE]; // variable sized (xyz s1t1 s2t2)
   std::vector<glm::vec4> verts;
 };
+
 
 struct MSurface {
   int visframe;   // should be drawn when node is crossed
@@ -319,6 +345,7 @@ struct MSurface {
   byte *samples;   // [numstyles*surfsize]
 };
 
+
 struct MNode {
 // common with leaf
   int contents;   // 0, to differentiate from leafs
@@ -335,6 +362,31 @@ struct MNode {
   unsigned int firstsurface;
   unsigned int numsurfaces;
 };
+
+
+struct QTexture {
+  char name[16];
+  unsigned      width, height;
+  struct gltexture_s *gltexture; //johnfitz -- pointer to gltexture
+  struct gltexture_s *fullbright; //johnfitz -- fullbright mask texture
+  struct gltexture_s *warpimage; //johnfitz -- for water animation
+  bool update_warp; //johnfitz -- update warp this frame
+  MSurface *texturechains[2];  // for texture chains
+  int anim_total;       // total tenths in sequence ( 0 = no)
+  int anim_min, anim_max;   // time for this frame min <=time< max
+  QTexture *anim_next;   // in the animation sequence
+  QTexture *alternate_anims; // bmodels in frmae 1 use these
+  unsigned offsets[MIPLEVELS];   // four mip maps stored
+};
+
+
+struct MTexInfo {
+  float vecs[2][4];
+  QTexture texture;
+  int flags;
+};
+
+
 
 struct MLeaf {
 // common with node
@@ -419,7 +471,7 @@ struct QModel {
   MNode *nodes;
 
   int numtexinfo;
-  MTexInfo *texinfo;
+  std::vector<MTexInfo> texinfo;
 
   int numsurfaces;
   std::vector<MSurface> surfaces;
@@ -440,7 +492,7 @@ struct QModel {
   Hull hulls[MAX_MAP_HULLS];
 
   int numtextures;
-  std::vector<Texture> textures;
+  std::vector<QTexture> textures;
 
   byte *visdata;
   byte *lightdata;
@@ -552,18 +604,6 @@ struct DPackHeader {
  glTF texture loading class
  // */
 struct Texture {
-  char name[16];
-  struct gltexture_s *gltexture; //johnfitz -- pointer to gltexture
-  struct gltexture_s *fullbright; //johnfitz -- fullbright mask texture
-  struct gltexture_s *warpimage; //johnfitz -- for water animation
-  bool update_warp; //johnfitz -- update warp this frame
-  struct msurface_s *texturechains[2];  // for texture chains
-  int anim_total;       // total tenths in sequence ( 0 = no)
-  int anim_min, anim_max;   // time for this frame min <=time< max
-  struct texture_s *anim_next;   // in the animation sequence
-  struct texture_s *alternate_anims; // bmodels in frmae 1 use these
-  unsigned offsets[MIPLEVELS];   // four mip maps stored
-
   vks::VulkanDevice *device = nullptr;
   VkImage image;
   VkImageLayout imageLayout;
@@ -579,6 +619,42 @@ struct Texture {
   void fromglTfImage(tinygltf::Image &gltfimage, std::string path,
       vks::VulkanDevice *device, VkQueue copyQueue);
 };
+
+
+enum srcformat {SRC_INDEXED, SRC_LIGHTMAP, SRC_RGBA};
+
+
+
+typedef struct gltexture_s {
+//managed by texture manager
+  struct gltexture_s  *next;
+  QModel    *owner;
+//managed by image loading
+  char      name[64];
+  unsigned int    width; //size of image as it exists in opengl
+  unsigned int    height; //size of image as it exists in opengl
+  unsigned int    flags;
+  char      source_file[MAX_QPATH]; //relative filepath to data source, or "" if source is in memory
+  src_offset_t    source_offset; //byte offset into file, or memory address
+  enum srcformat    source_format; //format of pixel data (indexed, lightmap, or rgba)
+  unsigned int    source_width; //size of image in source data
+  unsigned int    source_height; //size of image in source data
+  unsigned short    source_crc; //generated by source data before modifications
+  signed char     shirt; //0-13 shirt color, or -1 if never colormapped
+  signed char     pants; //0-13 pants color, or -1 if never colormapped
+//used for rendering
+  VkImage       image;
+  VkImageView     image_view;
+  VkImageView     target_image_view;
+  struct glheap_s * heap;
+  struct glheapnode_s * heap_node;
+  VkDescriptorSet   descriptor_set;
+  VkFramebuffer   frame_buffer;
+  VkDescriptorSet   warp_write_descriptor_set;
+  int     visframe; //matches r_framecount if texture was bound this frame
+} gltexture_t;
+
+
 
 /*
  glTF material class
@@ -794,6 +870,8 @@ private:
   std::vector<uint32_t> backupIndex;
   QModel mod;
   VkDescriptorSet descriptorSet;
+  MSurface *warpface;
+std::vector<GlPoly> polygons;
 
 public:
   QModel *loadmodel;
@@ -891,6 +969,10 @@ public:
   void modLoadFaces(Lump *l);
   void modPolyForUnlitSurface(MSurface *fa);
   void modLoadTextures (Lump *l);
+  void modLoadTexInfo(Lump *l);
+  void boundPoly (int numverts, std::vector<glm::vec3> &verts, glm::vec3 & mins, glm::vec3 & maxs);
+  void subdividePolygon (int numverts, std::vector<glm::vec3> & verts);
+  void glSubdivideSurface (MSurface *fa);
 
   static inline int q_tolower(int c) {
     return ((q_isupper(c)) ? (c | ('a' - 'A')) : c);
