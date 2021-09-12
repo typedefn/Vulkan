@@ -11,11 +11,23 @@ layout(binding = 2, set = 0) uniform UBO
 {
 	mat4 viewInverse;
 	mat4 projInverse;
-	vec4 lightPos;
+        vec4 lightPos;
 	int vertexSize;
 } ubo;
+
 layout(binding = 3, set = 0) buffer Vertices { vec4 v[]; } vertices;
 layout(binding = 4, set = 0) buffer Indices { uint i[]; } indices;
+layout(binding = 5, set = 0) uniform sampler2D textureSamplers;
+
+//struct Light
+//{
+// vec4 position;
+//  vec4 color;
+//};
+
+//layout(binding = 5, set = 0, std140) uniform Lights {
+//  Light lights[4];
+//};
 
 struct Vertex
 {
@@ -58,10 +70,14 @@ void main()
 	const vec3 barycentricCoords = vec3(1.0f - attribs.x - attribs.y, attribs.x, attribs.y);
 	vec3 normal = normalize(v0.normal * barycentricCoords.x + v1.normal * barycentricCoords.y + v2.normal * barycentricCoords.z);
 
+        
 	// Basic lighting
 	vec3 lightVector = normalize(ubo.lightPos.xyz);
 	float dot_product = max(dot(lightVector, normal), 0.2);
 	hitValue = v0.color.rgb * dot_product;
+ 
+        vec2 texCoord = v0.uv * barycentricCoords.x + v1.uv * barycentricCoords.y + v2.uv * barycentricCoords.z;
+        hitValue *= texture(textureSamplers, texCoord).xyz; 
  
 	// Shadow casting
 	float tmin = 0.001;

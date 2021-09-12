@@ -62,6 +62,7 @@ endfunction(buildExamples)
 
 set(EXAMPLES
 	raytracingbsp
+	rayquery
 	)
 
 buildExamples()

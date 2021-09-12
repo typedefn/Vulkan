@@ -857,9 +857,9 @@ void vkglBSP::Model::createEmptyTexture(VkQueue transferQueue) {
 vkglBSP::Model::~Model() {
 
   if (device) {
-    vkDestroyBuffer(device->logicalDevice, loadmodel->vertex_buffer, nullptr);
+    vkDestroyBuffer(device->logicalDevice, loadmodel->vertexBuffer.buffer, nullptr);
     vkFreeMemory(device->logicalDevice, loadmodel->memory, nullptr);
-    vkDestroyBuffer(device->logicalDevice, loadmodel->index_buffer, nullptr);
+    vkDestroyBuffer(device->logicalDevice, loadmodel->indexBuffer.buffer, nullptr);
     vkFreeMemory(device->logicalDevice, loadmodel->index_memory, nullptr);
     for (auto texture : textures) {
       texture.destroy();
@@ -1383,80 +1383,80 @@ void vkglBSP::Model::loadFromFile(std::string filename,
   std::cout << "vertex buffer size = " << vertexBufferSize << std::endl;
 
   assert((vertexBufferSize > 0) && (indexBufferSize > 0));
-
-  struct StagingBuffer {
-    VkBuffer buffer;
-    VkDeviceMemory memory;
-  } vertexStaging, indexStaging;
-
-  // Create staging buffers
-  // Vertex data
-  std::cout << "Creating staging buffer " << std::endl;
-  VK_CHECK_RESULT(
-      device->createBuffer(VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-          VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT
-              | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, vertexBufferSize,
-          &vertexStaging.buffer, &vertexStaging.memory,
-          loadmodel->vertexes.data()));
-
-  std::cout << "Done creating staging buffer " << std::endl;
-  // Index data
-  VK_CHECK_RESULT(
-      device->createBuffer(VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-          VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT
-              | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, indexBufferSize,
-          &indexStaging.buffer, &indexStaging.memory, loadmodel->edges.data()));
-
-  // Create device local buffers
-  // Vertex buffer
-
-  VK_CHECK_RESULT(
-      device->createBuffer(
-          VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT
-              | memoryPropertyFlags, VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-          vertexBufferSize, &loadmodel->vertex_buffer, &loadmodel->memory,
-          loadmodel->vertexes.data()));
-
-  std::cout << "VERTEX BUFFER = " << loadmodel->vertex_buffer << std::endl;
-  // Index buffer
-  VK_CHECK_RESULT(
-      device->createBuffer(
-          VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT
-              | memoryPropertyFlags, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-          indexBufferSize, &loadmodel->index_buffer, &loadmodel->index_memory));
-
-  // Copy from staging buffers
-  std::cout << "Creating command buffer " << std::endl;
-  VkCommandBuffer copyCmd = device->createCommandBuffer(
-      VK_COMMAND_BUFFER_LEVEL_PRIMARY, true);
-
-  VkBufferCopy copyRegion = { };
-
-  copyRegion.size = vertexBufferSize;
-  vkCmdCopyBuffer(copyCmd, vertexStaging.buffer, loadmodel->vertex_buffer, 1,
-      &copyRegion);
-
-  std::cout << "Done Creating command buffer " << std::endl;
-
-  copyRegion.size = indexBufferSize;
-  vkCmdCopyBuffer(copyCmd, indexStaging.buffer, loadmodel->index_buffer, 1,
-      &copyRegion);
-
-  std::cout << "Flush command buffer " << std::endl;
-
-  device->flushCommandBuffer(copyCmd, transferQueue, true);
-  std::cout << "Done Flush command buffer " << std::endl;
-
-  std::cout << "free staging buffer " << std::endl;
-  vkDestroyBuffer(device->logicalDevice, vertexStaging.buffer, nullptr);
-  vkFreeMemory(device->logicalDevice, vertexStaging.memory, nullptr);
-  std::cout << "done free staging buffer " << std::endl;
-  vkDestroyBuffer(device->logicalDevice, indexStaging.buffer, nullptr);
-  vkFreeMemory(device->logicalDevice, indexStaging.memory, nullptr);
-
-//  getSceneDimensions();
-
-  std::cout << "Setup descriptors " << std::endl;
+//
+//  struct StagingBuffer {
+//    VkBuffer buffer;
+//    VkDeviceMemory memory;
+//  } vertexStaging, indexStaging;
+//
+//  // Create staging buffers
+//  // Vertex data
+//  std::cout << "Creating staging buffer " << std::endl;
+//  VK_CHECK_RESULT(
+//      device->createBuffer(VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+//          VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT
+//              | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, vertexBufferSize,
+//          &vertexStaging.buffer, &vertexStaging.memory,
+//          loadmodel->vertexes.data()));
+//
+//  std::cout << "Done creating staging buffer " << std::endl;
+//  // Index data
+//  VK_CHECK_RESULT(
+//      device->createBuffer(VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+//          VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT
+//              | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, indexBufferSize,
+//          &indexStaging.buffer, &indexStaging.memory, loadmodel->edges.data()));
+//
+//  // Create device local buffers
+//  // Vertex buffer
+//
+//  VK_CHECK_RESULT(
+//      device->createBuffer(
+//          VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT
+//              | memoryPropertyFlags, VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+//          vertexBufferSize, &loadmodel->vertexBuffer.buffer, &loadmodel->memory,
+//          loadmodel->vertexes.data()));
+//
+//  std::cout << "VERTEX BUFFER = " << loadmodel->vertexBuffer.buffer << std::endl;
+//  // Index buffer
+//  VK_CHECK_RESULT(
+//      device->createBuffer(
+//          VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT
+//              | memoryPropertyFlags, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+//          indexBufferSize, &loadmodel->indexBuffer.buffer, &loadmodel->index_memory));
+//
+//  // Copy from staging buffers
+//  std::cout << "Creating command buffer " << std::endl;
+//  VkCommandBuffer copyCmd = device->createCommandBuffer(
+//      VK_COMMAND_BUFFER_LEVEL_PRIMARY, true);
+//
+//  VkBufferCopy copyRegion = { };
+//
+//  copyRegion.size = vertexBufferSize;
+//  vkCmdCopyBuffer(copyCmd, vertexStaging.buffer, loadmodel->vertexBuffer.buffer, 1,
+//      &copyRegion);
+//
+//  std::cout << "Done Creating command buffer " << std::endl;
+//
+//  copyRegion.size = indexBufferSize;
+//  vkCmdCopyBuffer(copyCmd, indexStaging.buffer, loadmodel->indexBuffer.buffer, 1,
+//      &copyRegion);
+//
+//  std::cout << "Flush command buffer " << std::endl;
+//
+//  device->flushCommandBuffer(copyCmd, transferQueue, true);
+//  std::cout << "Done Flush command buffer " << std::endl;
+//
+//  std::cout << "free staging buffer " << std::endl;
+//  vkDestroyBuffer(device->logicalDevice, vertexStaging.buffer, nullptr);
+//  vkFreeMemory(device->logicalDevice, vertexStaging.memory, nullptr);
+//  std::cout << "done free staging buffer " << std::endl;
+//  vkDestroyBuffer(device->logicalDevice, indexStaging.buffer, nullptr);
+//  vkFreeMemory(device->logicalDevice, indexStaging.memory, nullptr);
+//
+////  getSceneDimensions();
+//
+//  std::cout << "Setup descriptors " << std::endl;
   // Setup descriptors
   uint32_t uboCount { 0 };
   uint32_t imageCount { 0 };
@@ -1557,7 +1557,7 @@ void vkglBSP::Model::bindBuffers(VkCommandBuffer commandBuffer) {
   const VkDeviceSize offsets[1] = { 0 };
 //  vkCmdBindVertexBuffers(commandBuffer, 0, 1, &loadmodel->vertex_buffer,
 //      offsets);
-  vkCmdBindIndexBuffer(commandBuffer, loadmodel->index_buffer, 0,
+  vkCmdBindIndexBuffer(commandBuffer, loadmodel->indexBuffer.buffer, 0,
       VK_INDEX_TYPE_UINT32);
   buffersBound = true;
 }
@@ -2906,6 +2906,8 @@ void vkglBSP::Model::modLoadTexInfo(Lump *l) {
       out.texture = loadmodel->textures[miptex];
     }
     //johnfitz
+
+    std::cout << "MTextInfo = " << out.vecs[0][2] << std::endl;
 
     loadmodel->texinfo.push_back(out);
 
